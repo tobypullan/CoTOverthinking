@@ -1,0 +1,21 @@
+import os
+
+from groq import Groq
+
+client = Groq(
+    api_key=os.environ.get("GROQ_API_KEY"),
+)
+
+chat_completion = client.chat.completions.create(
+    messages=[
+        {
+            "role": "user",
+            "content": "Explain the importance of fast language models",
+        }
+    ],
+    model="qwen/qwen3-32b",
+)
+
+print(chat_completion)
+
+# print(chat_completion.choices[0].message.content)

@@ -1,0 +1,1479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Options Resample Matrix</title>
+  <style>
+    :root {
+      --bg: #f4efe6;
+      --bg-2: #efe0c6;
+      --panel: rgba(255, 250, 241, 0.92);
+      --panel-strong: rgba(255, 247, 234, 0.98);
+      --line: #d2c1a7;
+      --line-strong: #a78d64;
+      --text: #24180d;
+      --muted: #6f5c46;
+      --accent: #bb4f1d;
+      --accent-2: #144b52;
+      --good: #2f8a57;
+      --good-soft: #d6f1e0;
+      --bad: #b43a2f;
+      --bad-soft: #f9d8d5;
+      --focus: #0d6a73;
+      --shadow: 0 18px 40px rgba(63, 42, 18, 0.12);
+      --radius: 18px;
+      --mono: "SFMono-Regular", "Cascadia Mono", "Menlo", monospace;
+      --sans: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      color: var(--text);
+      background:
+        radial-gradient(circle at top right, rgba(187, 79, 29, 0.18), transparent 34%),
+        radial-gradient(circle at top left, rgba(20, 75, 82, 0.14), transparent 30%),
+        linear-gradient(180deg, var(--bg), #f7f1e7 34%, #fbf8f2 100%);
+      min-height: 100vh;
+    }
+
+    .shell {
+      width: min(1400px, calc(100% - 32px));
+      margin: 24px auto;
+      display: grid;
+      gap: 20px;
+    }
+
+    .hero,
+    .panel {
+      background: var(--panel);
+      border: 1px solid rgba(167, 141, 100, 0.45);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+
+    .hero {
+      padding: 24px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .eyebrow {
+      margin: 0;
+      color: var(--accent);
+      font-size: 0.82rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(1.9rem, 3vw, 3rem);
+      line-height: 1.05;
+      font-weight: 800;
+      max-width: 12ch;
+    }
+
+    .subhead {
+      margin: 0;
+      max-width: 72ch;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: 1.2fr repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      align-items: start;
+    }
+
+    .status {
+      min-height: 54px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.55);
+      border: 1px solid rgba(167, 141, 100, 0.35);
+      line-height: 1.4;
+      color: var(--muted);
+    }
+
+    .control-card {
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.55);
+      border: 1px solid rgba(167, 141, 100, 0.35);
+      display: grid;
+      gap: 8px;
+    }
+
+    .control-card label {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    input[type="file"] {
+      width: 100%;
+      font: inherit;
+      color: var(--text);
+    }
+
+    button {
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .reload {
+      border: 0;
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--accent), #d5652f);
+      color: #fff7f0;
+      transition: transform 120ms ease, box-shadow 120ms ease;
+      box-shadow: 0 10px 24px rgba(187, 79, 29, 0.22);
+    }
+
+    .reload:hover,
+    .reload:focus-visible {
+      transform: translateY(-1px);
+      outline: none;
+      box-shadow: 0 12px 26px rgba(187, 79, 29, 0.28);
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(124px, 1fr));
+      gap: 10px;
+    }
+
+    .summary-card {
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.62);
+      border: 1px solid rgba(167, 141, 100, 0.3);
+    }
+
+    .summary-card strong {
+      display: block;
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin-bottom: 6px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .summary-card span {
+      display: block;
+      font-weight: 800;
+      font-size: 1.2rem;
+    }
+
+    .accuracy-chart-card {
+      padding: 16px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.62);
+      border: 1px solid rgba(167, 141, 100, 0.3);
+      display: grid;
+      gap: 12px;
+    }
+
+    .accuracy-chart-header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px 12px;
+    }
+
+    .accuracy-chart-title {
+      margin: 0;
+      font-size: 0.9rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--accent-2);
+    }
+
+    .accuracy-chart-caption {
+      color: var(--muted);
+      font-size: 0.86rem;
+      line-height: 1.4;
+    }
+
+    .accuracy-chart-controls {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 0.84rem;
+      line-height: 1.3;
+    }
+
+    .accuracy-chart-controls input {
+      margin: 0;
+      accent-color: var(--accent-2);
+    }
+
+    .chart-shell {
+      overflow: hidden;
+      border-radius: 14px;
+      border: 1px solid rgba(167, 141, 100, 0.24);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 250, 241, 0.88));
+    }
+
+    .chart-svg {
+      display: block;
+      width: 100%;
+      height: auto;
+      min-height: 240px;
+    }
+
+    .chart-grid-line {
+      stroke: rgba(167, 141, 100, 0.24);
+      stroke-width: 1;
+    }
+
+    .chart-axis-label {
+      fill: var(--muted);
+      font-size: 12px;
+      font-family: var(--sans);
+    }
+
+    .chart-baseline {
+      stroke: rgba(167, 141, 100, 0.5);
+      stroke-width: 1.4;
+    }
+
+    .chart-area {
+      fill: rgba(20, 75, 82, 0.1);
+    }
+
+    .chart-line {
+      fill: none;
+      stroke: var(--accent-2);
+      stroke-width: 3;
+      stroke-linejoin: round;
+      stroke-linecap: round;
+    }
+
+    .chart-point {
+      fill: #fff7ea;
+      stroke: var(--accent);
+      stroke-width: 2;
+    }
+
+    .chart-point-label {
+      fill: var(--text);
+      font-size: 9px;
+      font-weight: 700;
+      font-family: var(--sans);
+    }
+
+    .chart-empty {
+      fill: var(--muted);
+      font-size: 14px;
+      font-family: var(--sans);
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.9fr);
+      gap: 20px;
+      align-items: start;
+    }
+
+    .panel {
+      padding: 18px;
+    }
+
+    .panel h2 {
+      margin: 0 0 14px;
+      font-size: 1.05rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--accent-2);
+    }
+
+    .matrix-wrap {
+      overflow: auto;
+      border-radius: 16px;
+      border: 1px solid rgba(167, 141, 100, 0.38);
+      background: rgba(255, 255, 255, 0.45);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      min-width: 720px;
+    }
+
+    thead th {
+      position: sticky;
+      top: 0;
+      background: var(--panel-strong);
+      z-index: 2;
+      padding: 12px 10px;
+      border-bottom: 1px solid rgba(167, 141, 100, 0.4);
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+
+    th:first-child,
+    td:first-child {
+      position: sticky;
+      left: 0;
+      z-index: 1;
+      background: var(--panel-strong);
+    }
+
+    thead th:first-child {
+      z-index: 3;
+    }
+
+    tbody td,
+    tbody th {
+      border-bottom: 1px solid rgba(167, 141, 100, 0.24);
+    }
+
+    .question-cell {
+      min-width: 72px;
+      max-width: 72px;
+      width: 72px;
+      padding: 8px 6px;
+      text-align: center;
+      vertical-align: middle;
+    }
+
+    .qid {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+    }
+
+    .qid-badge {
+      display: inline-grid;
+      place-items: center;
+      min-width: 36px;
+      min-height: 36px;
+      padding: 4px 6px;
+      border-radius: 999px;
+      background: rgba(20, 75, 82, 0.1);
+      color: var(--accent-2);
+      font-family: var(--mono);
+      font-size: 0.84rem;
+      text-align: center;
+      cursor: help;
+    }
+
+    .qid-badge.baseline-good {
+      background: var(--good-soft);
+      color: var(--good);
+      border: 1px solid rgba(47, 138, 87, 0.18);
+    }
+
+    .qid-badge.baseline-bad {
+      background: var(--bad-soft);
+      color: var(--bad);
+      border: 1px solid rgba(180, 58, 47, 0.18);
+    }
+
+    .qid-badge.baseline-unknown {
+      border: 1px solid rgba(20, 75, 82, 0.12);
+    }
+
+    .qid-badge:focus-visible {
+      outline: 2px solid rgba(13, 106, 115, 0.45);
+      outline-offset: 2px;
+    }
+
+    .matrix-button {
+      width: 38px;
+      height: 38px;
+      margin: 3px auto;
+      display: grid;
+      place-items: center;
+      border: 1px solid transparent;
+      border-radius: 11px;
+      font-weight: 800;
+      font-family: var(--mono);
+      font-size: 0.76rem;
+      letter-spacing: 0.05em;
+      transition: transform 100ms ease, border-color 100ms ease, box-shadow 100ms ease;
+    }
+
+    .matrix-button.good {
+      background: var(--good-soft);
+      color: var(--good);
+      border-color: rgba(47, 138, 87, 0.18);
+    }
+
+    .matrix-button.bad {
+      background: var(--bad-soft);
+      color: var(--bad);
+      border-color: rgba(180, 58, 47, 0.18);
+    }
+
+    .matrix-button.missing {
+      background: rgba(127, 127, 127, 0.08);
+      color: rgba(36, 24, 13, 0.4);
+      border-color: rgba(127, 127, 127, 0.12);
+      cursor: default;
+    }
+
+    .matrix-button:not(.missing):hover,
+    .matrix-button:not(.missing):focus-visible {
+      transform: translateY(-1px);
+      border-color: rgba(13, 106, 115, 0.4);
+      box-shadow: 0 8px 18px rgba(13, 106, 115, 0.12);
+      outline: none;
+    }
+
+    .matrix-button.active {
+      border-color: var(--focus);
+      box-shadow: 0 0 0 3px rgba(13, 106, 115, 0.18);
+    }
+
+    .detail-panel {
+      position: sticky;
+      top: 20px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .detail-kpis {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .kpi {
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.55);
+      border: 1px solid rgba(167, 141, 100, 0.28);
+    }
+
+    .kpi .label {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .kpi .value {
+      display: block;
+      font-family: var(--mono);
+      font-weight: 800;
+      font-size: 1rem;
+      word-break: break-word;
+    }
+
+    .kpi.good .value {
+      color: var(--good);
+    }
+
+    .kpi.bad .value {
+      color: var(--bad);
+    }
+
+    .detail-block {
+      display: grid;
+      gap: 6px;
+    }
+
+    .detail-block label {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .detail-block pre {
+      margin: 0;
+      padding: 14px;
+      border-radius: 14px;
+      border: 1px solid rgba(167, 141, 100, 0.25);
+      background: rgba(255, 255, 255, 0.58);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 0.86rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 240px;
+      overflow: auto;
+    }
+
+    .detail-question {
+      margin: 0;
+      padding: 14px;
+      border-radius: 14px;
+      background: rgba(20, 75, 82, 0.06);
+      border: 1px solid rgba(20, 75, 82, 0.12);
+      line-height: 1.45;
+    }
+
+    .placeholder {
+      padding: 18px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.55);
+      border: 1px dashed rgba(167, 141, 100, 0.45);
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .hover-tooltip {
+      position: fixed;
+      left: 0;
+      top: 0;
+      z-index: 9999;
+      max-width: min(420px, calc(100vw - 24px));
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(20, 75, 82, 0.16);
+      background: rgba(36, 24, 13, 0.94);
+      color: #fff7ea;
+      font-size: 0.84rem;
+      line-height: 1.4;
+      box-shadow: 0 14px 30px rgba(36, 24, 13, 0.28);
+      pointer-events: none;
+      opacity: 0;
+      transform: translateY(4px);
+      transition: opacity 100ms ease, transform 100ms ease;
+      white-space: normal;
+    }
+
+    .hover-tooltip.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    @media (max-width: 1080px) {
+      .controls,
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+
+      .detail-panel {
+        position: static;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .shell {
+        width: min(100%, calc(100% - 16px));
+        margin: 16px auto;
+      }
+
+      .hero,
+      .panel {
+        padding: 16px;
+      }
+
+      .question-cell {
+        min-width: 64px;
+        max-width: 64px;
+        width: 64px;
+      }
+
+      .matrix-button {
+        width: 34px;
+        height: 34px;
+        margin: 2px auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Resample Visualisation</p>
+        <h1>Options Resample Matrix</h1>
+      </div>
+      <p class="subhead">
+        Rows are question IDs and columns are resample points. Each box shows whether the resampled answer was correct.
+        Click any box to inspect the reconstructed model input and the stored model output for that exact resample point.
+      </p>
+
+      <div class="controls">
+        <div class="status" id="status">
+          Waiting for data. If you open this file directly from disk, most browsers block automatic file loading.
+          Use the file pickers or serve the repository over HTTP.
+        </div>
+
+        <div class="control-card">
+          <label for="resultsFile">Resample Results JSONL</label>
+          <input id="resultsFile" type="file" accept=".jsonl,.txt,application/json">
+        </div>
+
+        <div class="control-card">
+          <label for="baselineFile">Baseline JSONL</label>
+          <input id="baselineFile" type="file" accept=".jsonl,.txt,application/json">
+        </div>
+
+        <div class="control-card">
+          <label>Automatic Load</label>
+          <button class="reload" id="reloadButton" type="button">Reload Project Files</button>
+        </div>
+      </div>
+
+      <div class="summary-grid" id="summaryGrid"></div>
+
+      <div class="accuracy-chart-card">
+        <div class="accuracy-chart-header">
+          <p class="accuracy-chart-title">Overall Accuracy By Resample Point</p>
+          <label class="accuracy-chart-controls" for="excludeAlwaysWrongToggle">
+            <input id="excludeAlwaysWrongToggle" type="checkbox">
+            Exclude questions that are wrong at every resample point
+          </label>
+          <span class="accuracy-chart-caption" id="accuracyChartCaption">
+            Load data to render the trend.
+          </span>
+        </div>
+        <div class="chart-shell">
+          <svg
+            id="accuracyChart"
+            class="chart-svg"
+            viewBox="0 0 760 260"
+            preserveAspectRatio="none"
+            role="img"
+            aria-label="Overall accuracy by resample point"
+          ></svg>
+        </div>
+      </div>
+    </section>
+
+    <section class="workspace">
+      <div class="panel">
+        <h2>Matrix</h2>
+        <div class="matrix-wrap" id="matrixWrap">
+          <div class="placeholder" id="matrixPlaceholder">
+            Load `resample_results/options_results.jsonl` and `baseline/baseline_CoTs_options.jsonl` to render the matrix.
+          </div>
+          <table class="hidden" id="matrixTable">
+            <thead id="matrixHead"></thead>
+            <tbody id="matrixBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel detail-panel">
+        <h2>Selection</h2>
+        <div class="placeholder" id="detailPlaceholder">
+          Select any matrix cell to inspect the exact prompt reconstructed from the baseline chain-of-thought and the output stored in the resample results file.
+        </div>
+
+        <div class="detail-kpis hidden" id="detailKpis">
+          <div class="kpi">
+            <span class="label">Question ID</span>
+            <span class="value" id="detailQuestionId"></span>
+          </div>
+          <div class="kpi">
+            <span class="label">Resample Point</span>
+            <span class="value" id="detailResamplePoint"></span>
+          </div>
+          <div class="kpi">
+            <span class="label">Actual Answer</span>
+            <span class="value" id="detailActualAnswer"></span>
+          </div>
+          <div class="kpi" id="detailCorrectnessCard">
+            <span class="label">Correct</span>
+            <span class="value" id="detailCorrectness"></span>
+          </div>
+          <div class="kpi">
+            <span class="label">Truncated Length</span>
+            <span class="value" id="detailTruncatedLength"></span>
+          </div>
+        </div>
+
+        <p class="detail-question hidden" id="detailQuestion"></p>
+
+        <div class="detail-block hidden" id="userMessageBlock">
+          <label>User Message (Reconstructed)</label>
+          <pre id="detailUserMessage"></pre>
+        </div>
+
+        <div class="detail-block hidden" id="answerBlock">
+          <label>Answer</label>
+          <pre id="detailAnswer"></pre>
+        </div>
+
+        <div class="detail-block hidden" id="parsedAnswerBlock">
+          <label>Parsed Answer</label>
+          <pre id="detailParsedAnswer"></pre>
+        </div>
+
+        <div class="detail-block hidden" id="outputBlock">
+          <label>Stored Model Output</label>
+          <pre id="detailOutput"></pre>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="hover-tooltip hidden" id="hoverTooltip" role="tooltip" aria-hidden="true"></div>
+
+  <script>
+    const RESAMPLE_RESULTS_PATH = "../resample_results/options_results.jsonl";
+    const BASELINE_RESULTS_PATH = "../baseline/baseline_CoTs_options.jsonl";
+
+    const state = {
+      rows: [],
+      resamplePoints: [],
+      selectedKey: null,
+      uploadedTexts: {
+        results: null,
+        baseline: null
+      }
+    };
+
+    const statusEl = document.getElementById("status");
+    const summaryGridEl = document.getElementById("summaryGrid");
+    const accuracyChartEl = document.getElementById("accuracyChart");
+    const accuracyChartCaptionEl = document.getElementById("accuracyChartCaption");
+    const excludeAlwaysWrongToggleEl = document.getElementById("excludeAlwaysWrongToggle");
+    const matrixPlaceholderEl = document.getElementById("matrixPlaceholder");
+    const matrixTableEl = document.getElementById("matrixTable");
+    const matrixHeadEl = document.getElementById("matrixHead");
+    const matrixBodyEl = document.getElementById("matrixBody");
+    const hoverTooltipEl = document.getElementById("hoverTooltip");
+    const resultsFileEl = document.getElementById("resultsFile");
+    const baselineFileEl = document.getElementById("baselineFile");
+    const reloadButtonEl = document.getElementById("reloadButton");
+    const detailPlaceholderEl = document.getElementById("detailPlaceholder");
+    const detailKpisEl = document.getElementById("detailKpis");
+    const detailQuestionEl = document.getElementById("detailQuestion");
+    const detailQuestionIdEl = document.getElementById("detailQuestionId");
+    const detailResamplePointEl = document.getElementById("detailResamplePoint");
+    const detailAnswerEl = document.getElementById("detailAnswer");
+    const detailParsedAnswerEl = document.getElementById("detailParsedAnswer");
+    const detailActualAnswerEl = document.getElementById("detailActualAnswer");
+    const detailCorrectnessEl = document.getElementById("detailCorrectness");
+    const detailCorrectnessCardEl = document.getElementById("detailCorrectnessCard");
+    const detailTruncatedLengthEl = document.getElementById("detailTruncatedLength");
+    const detailUserMessageEl = document.getElementById("detailUserMessage");
+    const detailOutputEl = document.getElementById("detailOutput");
+
+    const detailBlocks = [
+      document.getElementById("userMessageBlock"),
+      document.getElementById("answerBlock"),
+      document.getElementById("parsedAnswerBlock"),
+      document.getElementById("outputBlock")
+    ];
+
+    function setStatus(message) {
+      statusEl.textContent = message;
+    }
+
+    function formatPercent(point) {
+      return `${Math.round(point * 100)}%`;
+    }
+
+    function positionHoverTooltip(x, y) {
+      const offset = 14;
+      const padding = 12;
+      hoverTooltipEl.style.left = "0px";
+      hoverTooltipEl.style.top = "0px";
+
+      const tooltipWidth = hoverTooltipEl.offsetWidth;
+      const tooltipHeight = hoverTooltipEl.offsetHeight;
+
+      let left = x + offset;
+      let top = y + offset;
+
+      if (left + tooltipWidth > window.innerWidth - padding) {
+        left = Math.max(padding, x - tooltipWidth - offset);
+      }
+
+      if (top + tooltipHeight > window.innerHeight - padding) {
+        top = Math.max(padding, y - tooltipHeight - offset);
+      }
+
+      hoverTooltipEl.style.left = `${left}px`;
+      hoverTooltipEl.style.top = `${top}px`;
+    }
+
+    function showHoverTooltip(text, anchorRect, pointerX, pointerY) {
+      hoverTooltipEl.textContent = text || "(missing question text)";
+      hoverTooltipEl.classList.remove("hidden");
+      hoverTooltipEl.setAttribute("aria-hidden", "false");
+      hoverTooltipEl.classList.add("visible");
+
+      const fallbackX = anchorRect ? anchorRect.right : 24;
+      const fallbackY = anchorRect ? anchorRect.top : 24;
+      positionHoverTooltip(pointerX ?? fallbackX, pointerY ?? fallbackY);
+    }
+
+    function hideHoverTooltip() {
+      hoverTooltipEl.classList.remove("visible");
+      hoverTooltipEl.setAttribute("aria-hidden", "true");
+      hoverTooltipEl.classList.add("hidden");
+    }
+
+    function createSvgNode(tagName, attributes) {
+      const node = document.createElementNS("http://www.w3.org/2000/svg", tagName);
+      for (const [name, value] of Object.entries(attributes)) {
+        node.setAttribute(name, String(value));
+      }
+      return node;
+    }
+
+    function truncateCoT(response, resampleLength) {
+      const truncated = response.slice(0, resampleLength);
+      const lastPeriod = truncated.lastIndexOf(".");
+      if (lastPeriod !== -1) {
+        return truncated.slice(0, lastPeriod + 1);
+      }
+      return truncated;
+    }
+
+    function parseJsonl(text) {
+      return text
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line, index) => {
+          try {
+            return JSON.parse(line);
+          } catch (error) {
+            throw new Error(`Invalid JSON on line ${index + 1}: ${error.message}`);
+          }
+        });
+    }
+
+    async function readLocalFile(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
+        reader.readAsText(file);
+      });
+    }
+
+    async function fetchText(path) {
+      const response = await fetch(path, { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status} while loading ${path}`);
+      }
+      return response.text();
+    }
+
+    function buildViewModel(resultsRows, baselineRows) {
+      const baselineById = new Map(
+        baselineRows.map((row) => [row.question_id, row])
+      );
+
+      const resamplePoints = Array.from(
+        new Set(
+          resultsRows.flatMap((row) =>
+            (row.resample_results || []).map((result) => Number(result.resample_point))
+          )
+        )
+      ).sort((a, b) => a - b);
+
+      const rows = [...resultsRows]
+        .sort((a, b) => a.question_id - b.question_id)
+        .map((row) => {
+          const baseline = baselineById.get(row.question_id) || null;
+          const baselineResponse = baseline && typeof baseline.response === "string" ? baseline.response : "";
+          const baselinePrompt = baseline && typeof baseline.prompt === "string" ? baseline.prompt : "";
+          const baselineLength = baselineResponse.length;
+          const resultByPoint = new Map(
+            (row.resample_results || []).map((result) => [Number(result.resample_point), result])
+          );
+
+          const cells = resamplePoints.map((point) => {
+            const result = resultByPoint.get(point) || null;
+            if (!result) {
+              return {
+                key: `${row.question_id}:${point}`,
+                point,
+                missing: true
+              };
+            }
+
+            const resampleLength = Math.floor(baselineLength * point);
+            const truncatedReasoning = truncateCoT(baselineResponse, resampleLength);
+            const userMessage = `/no_think question: ${baselinePrompt}, reasoning: ${truncatedReasoning} \n\nAnswer Label: `;
+            const hasParsedAnswer = Object.prototype.hasOwnProperty.call(result, "parsed_answer");
+
+            return {
+              key: `${row.question_id}:${point}`,
+              questionId: row.question_id,
+              question: row.question,
+              point,
+              response: result.response,
+              answer: result.answer,
+              parsedAnswer: hasParsedAnswer ? result.parsed_answer : "",
+              hasParsedAnswer,
+              actualAnswer: result.actual_answer,
+              correct: Boolean(result.correct),
+              truncatedLength: resampleLength,
+              userMessage,
+              missing: false
+            };
+          });
+
+          return {
+            questionId: row.question_id,
+            question: row.question,
+            baselineCorrect:
+              baseline && typeof baseline.correct === "boolean" ? baseline.correct : null,
+            cells
+          };
+        });
+
+      return { rows, resamplePoints };
+    }
+
+    function getPointAccuracyStats(rows, resamplePoints) {
+      if (!rows.length) {
+        return [];
+      }
+
+      return resamplePoints.map((point) => {
+        const pointCells = rows
+          .flatMap((row) => row.cells)
+          .filter((cell) => !cell.missing && cell.point === point);
+        const correct = pointCells.filter((cell) => cell.correct).length;
+
+        return {
+          point,
+          total: pointCells.length,
+          correct,
+          accuracy: pointCells.length ? correct / pointCells.length : 0
+        };
+      });
+    }
+
+    function getChartData(rows, resamplePoints) {
+      const filterEnabled = excludeAlwaysWrongToggleEl.checked;
+      const alwaysWrongRows = rows.filter((row) => {
+        const availableCells = row.cells.filter((cell) => !cell.missing);
+        return availableCells.length > 0 && availableCells.every((cell) => !cell.correct);
+      });
+      const chartRows = filterEnabled
+        ? rows.filter((row) => !alwaysWrongRows.includes(row))
+        : rows;
+
+      return {
+        filterEnabled,
+        excludedQuestions: filterEnabled ? alwaysWrongRows.length : 0,
+        includedQuestions: chartRows.length,
+        pointStats: getPointAccuracyStats(chartRows, resamplePoints)
+      };
+    }
+
+    function renderAccuracyChart(pointStats, options = {}) {
+      const {
+        dataLoaded = false,
+        filterEnabled = false,
+        includedQuestions = 0,
+        excludedQuestions = 0
+      } = options;
+
+      accuracyChartEl.replaceChildren();
+
+      if (!pointStats.length) {
+        if (!dataLoaded) {
+          accuracyChartCaptionEl.textContent = "Load data to render the trend.";
+        } else if (filterEnabled) {
+          accuracyChartCaptionEl.textContent = "Filter removed all questions from the chart.";
+        } else {
+          accuracyChartCaptionEl.textContent = "No chart data available.";
+        }
+        accuracyChartEl.append(
+          createSvgNode("text", {
+            x: 380,
+            y: 132,
+            "text-anchor": "middle",
+            class: "chart-empty"
+          })
+        );
+        accuracyChartEl.lastChild.textContent = "No data loaded";
+        return;
+      }
+
+      const width = 760;
+      const height = 260;
+      const padding = { top: 18, right: 18, bottom: 42, left: 46 };
+      const plotWidth = width - padding.left - padding.right;
+      const plotHeight = height - padding.top - padding.bottom;
+      const minX = padding.left;
+      const maxX = padding.left + plotWidth;
+      const minY = padding.top;
+      const maxY = padding.top + plotHeight;
+
+      const bestPoint = pointStats.reduce((best, current) =>
+        current.accuracy > best.accuracy ? current : best
+      );
+      accuracyChartCaptionEl.textContent =
+        `Best point: ${formatPercent(bestPoint.point)} at ${Math.round(bestPoint.accuracy * 100)}% accuracy (${includedQuestions} shown${filterEnabled ? `, ${excludedQuestions} excluded` : ""})`;
+
+      const xForIndex = (index) => {
+        if (pointStats.length === 1) {
+          return minX + plotWidth / 2;
+        }
+        return minX + (index / (pointStats.length - 1)) * plotWidth;
+      };
+
+      const yForAccuracy = (accuracy) => maxY - (accuracy * plotHeight);
+
+      for (const ratio of [0, 0.25, 0.5, 0.75, 1]) {
+        const y = yForAccuracy(ratio);
+        accuracyChartEl.append(
+          createSvgNode("line", {
+            x1: minX,
+            y1: y,
+            x2: maxX,
+            y2: y,
+            class: "chart-grid-line"
+          })
+        );
+
+        const label = createSvgNode("text", {
+          x: padding.left - 8,
+          y: y + 4,
+          "text-anchor": "end",
+          class: "chart-axis-label"
+        });
+        label.textContent = `${Math.round(ratio * 100)}%`;
+        accuracyChartEl.append(label);
+      }
+
+      accuracyChartEl.append(
+        createSvgNode("line", {
+          x1: minX,
+          y1: maxY,
+          x2: maxX,
+          y2: maxY,
+          class: "chart-baseline"
+        })
+      );
+
+      const linePoints = pointStats.map((stat, index) => {
+        const x = xForIndex(index);
+        const y = yForAccuracy(stat.accuracy);
+        return { x, y, stat };
+      });
+
+      const linePath = linePoints
+        .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
+        .join(" ");
+      const areaPath = [
+        `M ${linePoints[0].x} ${maxY}`,
+        ...linePoints.map((point, index) => `${index === 0 ? "L" : "L"} ${point.x} ${point.y}`),
+        `L ${linePoints[linePoints.length - 1].x} ${maxY}`,
+        "Z"
+      ].join(" ");
+
+      accuracyChartEl.append(
+        createSvgNode("path", {
+          d: areaPath,
+          class: "chart-area"
+        })
+      );
+
+      accuracyChartEl.append(
+        createSvgNode("path", {
+          d: linePath,
+          class: "chart-line"
+        })
+      );
+
+      for (const [index, point] of linePoints.entries()) {
+        const xLabel = createSvgNode("text", {
+          x: point.x,
+          y: height - 14,
+          "text-anchor": "middle",
+          class: "chart-axis-label"
+        });
+        xLabel.textContent = formatPercent(point.stat.point);
+        accuracyChartEl.append(xLabel);
+
+        const pointNode = createSvgNode("circle", {
+          cx: point.x,
+          cy: point.y,
+          r: 5,
+          class: "chart-point"
+        });
+        pointNode.append(
+          document.createElementNS("http://www.w3.org/2000/svg", "title")
+        );
+        pointNode.firstChild.textContent =
+          `${formatPercent(point.stat.point)}: ${point.stat.correct}/${point.stat.total} correct`;
+        accuracyChartEl.append(pointNode);
+
+        const valueLabel = createSvgNode("text", {
+          x: point.x,
+          y: Math.max(minY + 12, point.y - 10),
+          "text-anchor": "middle",
+          class: "chart-point-label"
+        });
+        valueLabel.textContent = `${Math.round(point.stat.accuracy * 100)}%`;
+        accuracyChartEl.append(valueLabel);
+      }
+    }
+
+    function renderChartFromState() {
+      const hasData = state.rows.length > 0 && state.resamplePoints.length > 0;
+      if (!hasData) {
+        renderAccuracyChart([], { dataLoaded: false });
+        return;
+      }
+
+      const chartData = getChartData(state.rows, state.resamplePoints);
+      renderAccuracyChart(chartData.pointStats, {
+        dataLoaded: true,
+        filterEnabled: chartData.filterEnabled,
+        includedQuestions: chartData.includedQuestions,
+        excludedQuestions: chartData.excludedQuestions
+      });
+    }
+
+    function renderSummary(rows, resamplePoints) {
+      summaryGridEl.replaceChildren();
+
+      if (!rows.length || !resamplePoints.length) {
+        renderChartFromState();
+        return;
+      }
+
+      const totalCells = rows.reduce(
+        (sum, row) => sum + row.cells.filter((cell) => !cell.missing).length,
+        0
+      );
+      const totalCorrect = rows.reduce(
+        (sum, row) => sum + row.cells.filter((cell) => !cell.missing && cell.correct).length,
+        0
+      );
+
+      const summaryItems = [
+        { label: "Questions", value: String(rows.length) },
+        { label: "Cells", value: String(totalCells) },
+        { label: "Correct", value: String(totalCorrect) },
+        {
+          label: "Accuracy",
+          value: totalCells ? `${Math.round((totalCorrect / totalCells) * 100)}%` : "0%"
+        }
+      ];
+
+      const pointStats = getPointAccuracyStats(rows, resamplePoints);
+
+      for (const stat of pointStats) {
+        summaryItems.push({
+          label: formatPercent(stat.point),
+          value: `${stat.correct}/${stat.total}`
+        });
+      }
+
+      for (const item of summaryItems) {
+        const card = document.createElement("div");
+        card.className = "summary-card";
+
+        const strong = document.createElement("strong");
+        strong.textContent = item.label;
+
+        const span = document.createElement("span");
+        span.textContent = item.value;
+
+        card.append(strong, span);
+        summaryGridEl.append(card);
+      }
+
+      renderChartFromState();
+    }
+
+    function clearSelection() {
+      state.selectedKey = null;
+      detailPlaceholderEl.classList.remove("hidden");
+      detailKpisEl.classList.add("hidden");
+      detailQuestionEl.classList.add("hidden");
+      for (const block of detailBlocks) {
+        block.classList.add("hidden");
+      }
+
+      for (const button of matrixBodyEl.querySelectorAll(".matrix-button.active")) {
+        button.classList.remove("active");
+      }
+    }
+
+    function renderDetails(cell) {
+      if (!cell || cell.missing) {
+        clearSelection();
+        return;
+      }
+
+      detailPlaceholderEl.classList.add("hidden");
+      detailKpisEl.classList.remove("hidden");
+      detailQuestionEl.classList.remove("hidden");
+      for (const block of detailBlocks) {
+        block.classList.remove("hidden");
+      }
+
+      detailQuestionIdEl.textContent = String(cell.questionId);
+      detailResamplePointEl.textContent = formatPercent(cell.point);
+      detailAnswerEl.textContent = cell.answer || "(none)";
+      detailParsedAnswerEl.textContent = cell.hasParsedAnswer
+        ? (cell.parsedAnswer || "(empty)")
+        : "(parsed_answer missing in this JSONL row)";
+      detailActualAnswerEl.textContent = cell.actualAnswer || "(none)";
+      detailCorrectnessEl.textContent = cell.correct ? "YES" : "NO";
+      detailTruncatedLengthEl.textContent = String(cell.truncatedLength);
+      detailQuestionEl.textContent = cell.question || "(missing question text)";
+      detailUserMessageEl.textContent = cell.userMessage;
+      detailOutputEl.textContent = cell.response || "(empty)";
+
+      detailCorrectnessCardEl.classList.toggle("good", cell.correct);
+      detailCorrectnessCardEl.classList.toggle("bad", !cell.correct);
+    }
+
+    function selectCell(cell, button) {
+      state.selectedKey = cell.key;
+
+      for (const activeButton of matrixBodyEl.querySelectorAll(".matrix-button.active")) {
+        activeButton.classList.remove("active");
+      }
+
+      if (button) {
+        button.classList.add("active");
+      }
+
+      renderDetails(cell);
+    }
+
+    function renderMatrix(rows, resamplePoints) {
+      matrixHeadEl.replaceChildren();
+      matrixBodyEl.replaceChildren();
+
+      if (!rows.length || !resamplePoints.length) {
+        matrixPlaceholderEl.classList.remove("hidden");
+        matrixTableEl.classList.add("hidden");
+        clearSelection();
+        return;
+      }
+
+      matrixPlaceholderEl.classList.add("hidden");
+      matrixTableEl.classList.remove("hidden");
+
+      const headRow = document.createElement("tr");
+      const labelHead = document.createElement("th");
+      labelHead.textContent = "Question";
+      headRow.append(labelHead);
+
+      for (const point of resamplePoints) {
+        const th = document.createElement("th");
+        th.textContent = formatPercent(point);
+        headRow.append(th);
+      }
+
+      matrixHeadEl.append(headRow);
+
+      let firstSelectable = null;
+
+      for (const row of rows) {
+        const tr = document.createElement("tr");
+
+        const questionCell = document.createElement("th");
+        questionCell.className = "question-cell";
+
+        const qid = document.createElement("div");
+        qid.className = "qid";
+
+        const badge = document.createElement("span");
+        badge.className = "qid-badge";
+        badge.textContent = String(row.questionId);
+        badge.classList.add(
+          row.baselineCorrect === true
+            ? "baseline-good"
+            : row.baselineCorrect === false
+              ? "baseline-bad"
+              : "baseline-unknown"
+        );
+        badge.tabIndex = 0;
+        badge.setAttribute("aria-label", row.question || "(missing question text)");
+        badge.addEventListener("mouseenter", (event) => {
+          showHoverTooltip(
+            row.question,
+            badge.getBoundingClientRect(),
+            event.clientX,
+            event.clientY
+          );
+        });
+        badge.addEventListener("mousemove", (event) => {
+          if (!hoverTooltipEl.classList.contains("hidden")) {
+            positionHoverTooltip(event.clientX, event.clientY);
+          }
+        });
+        badge.addEventListener("mouseleave", hideHoverTooltip);
+        badge.addEventListener("focus", () => {
+          showHoverTooltip(row.question, badge.getBoundingClientRect());
+        });
+        badge.addEventListener("blur", hideHoverTooltip);
+
+        qid.append(badge);
+        questionCell.append(qid);
+        tr.append(questionCell);
+
+        for (const cell of row.cells) {
+          const td = document.createElement("td");
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "matrix-button";
+
+          if (cell.missing) {
+            button.classList.add("missing");
+            button.textContent = "--";
+            button.disabled = true;
+            button.title = "No result for this resample point";
+          } else {
+            button.classList.add(cell.correct ? "good" : "bad");
+            button.textContent = cell.correct ? "OK" : "NO";
+            button.title = `Q${cell.questionId} at ${formatPercent(cell.point)}: ${cell.correct ? "correct" : "incorrect"}`;
+            button.dataset.key = cell.key;
+            button.addEventListener("click", () => selectCell(cell, button));
+
+            if (!firstSelectable) {
+              firstSelectable = { cell, button };
+            }
+          }
+
+          td.append(button);
+          tr.append(td);
+        }
+
+        matrixBodyEl.append(tr);
+      }
+
+      if (state.selectedKey) {
+        const selected = rows
+          .flatMap((row) => row.cells)
+          .find((cell) => cell.key === state.selectedKey);
+        if (selected) {
+          const button = matrixBodyEl.querySelector(`[data-key="${selected.key}"]`);
+          selectCell(selected, button);
+          return;
+        }
+      }
+
+      if (firstSelectable) {
+        selectCell(firstSelectable.cell, firstSelectable.button);
+      } else {
+        clearSelection();
+      }
+    }
+
+    function initialiseFromTexts(resultsText, baselineText, sourceLabel) {
+      const resultsRows = parseJsonl(resultsText);
+      const baselineRows = parseJsonl(baselineText);
+      const viewModel = buildViewModel(resultsRows, baselineRows);
+
+      state.rows = viewModel.rows;
+      state.resamplePoints = viewModel.resamplePoints;
+
+      renderSummary(state.rows, state.resamplePoints);
+      renderMatrix(state.rows, state.resamplePoints);
+      setStatus(`${sourceLabel}. Loaded ${state.rows.length} questions across ${state.resamplePoints.length} resample points.`);
+    }
+
+    async function tryAutoLoad() {
+      setStatus("Loading project files...");
+      try {
+        const [resultsText, baselineText] = await Promise.all([
+          fetchText(RESAMPLE_RESULTS_PATH),
+          fetchText(BASELINE_RESULTS_PATH)
+        ]);
+        initialiseFromTexts(resultsText, baselineText, "Loaded project files automatically");
+      } catch (error) {
+        setStatus(`Automatic loading failed: ${error.message}. Use the file pickers or serve the repository over HTTP.`);
+      }
+    }
+
+    async function tryUploadLoad() {
+      if (!state.uploadedTexts.results || !state.uploadedTexts.baseline) {
+        return;
+      }
+
+      try {
+        initialiseFromTexts(
+          state.uploadedTexts.results,
+          state.uploadedTexts.baseline,
+          "Loaded selected files"
+        );
+      } catch (error) {
+        setStatus(`Could not parse selected files: ${error.message}`);
+      }
+    }
+
+    resultsFileEl.addEventListener("change", async (event) => {
+      const [file] = event.target.files;
+      if (!file) {
+        state.uploadedTexts.results = null;
+        return;
+      }
+
+      try {
+        state.uploadedTexts.results = await readLocalFile(file);
+        setStatus("Resample results selected. Select the baseline file as well.");
+        await tryUploadLoad();
+      } catch (error) {
+        setStatus(error.message);
+      }
+    });
+
+    baselineFileEl.addEventListener("change", async (event) => {
+      const [file] = event.target.files;
+      if (!file) {
+        state.uploadedTexts.baseline = null;
+        return;
+      }
+
+      try {
+        state.uploadedTexts.baseline = await readLocalFile(file);
+        setStatus("Baseline file selected. Select the resample results file as well.");
+        await tryUploadLoad();
+      } catch (error) {
+        setStatus(error.message);
+      }
+    });
+
+    reloadButtonEl.addEventListener("click", () => {
+      void tryAutoLoad();
+    });
+
+    excludeAlwaysWrongToggleEl.addEventListener("change", () => {
+      renderChartFromState();
+    });
+
+    if (window.location.protocol === "file:") {
+      setStatus("Open from disk detected. Automatic loading is usually blocked for local files, so use the file pickers or serve the repository over HTTP.");
+    } else {
+      void tryAutoLoad();
+    }
+  </script>
+</body>
+</html>
