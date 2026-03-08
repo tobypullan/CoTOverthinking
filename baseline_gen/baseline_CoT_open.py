@@ -38,6 +38,17 @@ def answer_parser(model_response):
     except:
         return None
     
+def judge_and_parse(response, options):
+    judge_response = None
+
+    for _ in range(5):
+        judge_response = model_judge(response, options)
+        parsed_answer = answer_parser(judge_response)
+        if parsed_answer:
+            return judge_response, parsed_answer
+
+    return judge_response, "UNKNOWN"
+    
 def baseline_CoT(q_id):
     """
     returns the baseline CoT for a given question id, prompt_tokens, completion tokens, correctness
@@ -57,38 +68,57 @@ def baseline_CoT(q_id):
         model="qwen/qwen3-32b",
     )
     print(response)
+    if response.choices[0].finish_reason == "length":
+        return question, response.choices[0].message.content, None, None, None, None, None, None, response.choices[0].finish_reason
     labelled_options = "\n".join([f"{chr(65+i)}: {option}" for i, option in enumerate(ds[q_id]["options"])])
-    answer = None
-    answer = model_judge(response.choices[0].message.content, labelled_options)
-    parsed_answer = answer_parser(answer)
-    while parsed_answer is None:
-        print("Model judge failed to produce an answer. Retrying...")
-        answer = model_judge(response.choices[0].message.content, labelled_options)
-        parsed_answer = answer_parser(answer)
+    answers = []
+    respones = []
+    for i in range(5):
+        judge_response, parsed_answer = judge_and_parse(response.choices[0].message.content.strip(), labelled_options)
+        answers.append(parsed_answer)
+        respones.append(judge_response)
+    votes = {option: answers.count(option) for option in set(answers)}
+    # if most votes != 4 and at least one of the votes for the correct answer, run 5 more judging rounds
+    if max(votes.values()) < 4 and votes.get(ds[q_id]["answer"], 0) > 0:
+        for i in range(5):
+            judge_response, parsed_answer = judge_and_parse(response.choices[0].message.content.strip(), labelled_options)
+            answers.append(parsed_answer)
+            respones.append(judge_response)
+        votes = {option: answers.count(option) for option in set(answers)}
+    # most common parsed answer
+    parsed_answer = max(set(answers), key=answers.count)
+    judge_response = respones[answers.index(parsed_answer)]
+    
     print()
-    print(answer)
-    correct = answer_parser(answer) == ds[q_id]["answer"]
+    print(parsed_answer)
+    correct = parsed_answer == ds[q_id]["answer"]
     completed = response.choices[0].finish_reason
-    return question, response.choices[0].message.content, answer, correct, completed
+    actual_answer = ds[q_id]["options"][ord(ds[q_id]["answer"]) - 65]
+    actual_answer_label = ds[q_id]["answer"]
+    return question, response.choices[0].message.content, parsed_answer, judge_response, votes, correct, actual_answer, actual_answer_label, completed
 
 def save_baseline(q_id):
-    question, response, answer_response, correct, completed = baseline_CoT(q_id)
-    with open("../baseline/baseline_CoTs_open.jsonl", "a") as f:
-        actual_answer_label = ds[q_id]["answer"]
-        actual_answer = ds[q_id]["options"][ord(actual_answer_label) - 65]
+    question, response, answer_response, judge_response, votes, correct, actual_answer, actual_answer_label, completed = baseline_CoT(q_id)
+    with open("../baseline/baseline_open_voting.jsonl", "a") as f:
         json.dump({
             "question_id": q_id,
             "question": question,
             "response": response,
             "answer_response": answer_response,
+            "judge_response": judge_response,
+            "votes": votes,
             "correct": correct,
             "actual_answer": actual_answer,
+            "actual_answer_label": actual_answer_label,
             "complete_reason": completed
         }, f)
         f.write("\n")
     return correct
 
-for i in range(30):
-    print(f"Processing question {i}...")
-    correct = save_baseline(i)
-    print(f"Question {i} processed. Correct: {correct}")
+# for i in range(13, 30):
+#     print(f"Processing question {i}...")
+#     correct = save_baseline(i)
+#     print(f"Question {i} processed. Correct: {correct}")
+
+
+save_baseline(2)

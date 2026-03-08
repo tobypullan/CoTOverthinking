@@ -1,6 +1,5 @@
 import json
 import os
-import re
 from pathlib import Path
 
 from datasets import load_dataset
@@ -9,31 +8,26 @@ from groq import Groq
 ds = load_dataset("TIGER-Lab/MMLU-Pro", split="test")
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-BASELINE_PATH = SCRIPT_DIR.parent / "baseline" / "baseline_CoTs_open.jsonl"
-RESULTS_PATH = SCRIPT_DIR.parent / "resample_results" / "open_results.jsonl"
+BASELINE_PATH = SCRIPT_DIR.parent / "baseline" / "baseline_open_voting.jsonl"
+RESULTS_PATH = SCRIPT_DIR.parent / "resample_results" / "open_voting_results.jsonl"
 
 client = Groq(
     api_key=os.environ.get("GROQ_API_KEY"),
 )
 
 
-def extract_answer_label(text):
-    if not text:
+def answer_parser(model_response):
+    try:
+        if model_response[-1] == ".":
+            model_response = model_response[:-1]
+        final_sentence = model_response.strip().split(".")[-1]
+        labels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']
+        for char in final_sentence:
+            if char in labels:
+                answer = char
+        return answer
+    except:
         return None
-
-    text = text.strip().rstrip("*_`")
-    patterns = [
-        r"CHOSEN OPTION:\s*\[?([A-J])\]?\b",
-        r"ANSWER:\s*\[?([A-J])\]?\b",
-        r"\banswer\s*(?:is|:)\s*\[?([A-J])\]?\b",
-        r"\boption\s+([A-J])\b",
-        r"\b([A-J])\b[\s\]\).,:;!?*_`-]*$",
-    ]
-    for pattern in patterns:
-        matches = re.findall(pattern, text, flags=re.IGNORECASE)
-        if matches:
-            return matches[-1].upper()
-    return None
 
 
 def truncate_CoT(response, resample_length):
@@ -82,11 +76,11 @@ def model_judge(response, options):
         messages=[
             {
                 "role": "system",
-                "content": "You are given a model's response to a question. You must decide which labelled option the response best matches. Do not choose the answer you think is correct independently of the response. Explain briefly, then end with the single label you chose.",
+                "content": "You are given a model's response to a question. You must decide which option their answer best matches. Let me be clear - you are not choosing the option YOU think is correct, you are choosing the answer that best fits the RESPONSE you are given.",
             },
             {
                 "role": "user",
-                "content": f"Response: {response}\n\nOptions:\n{options}",
+                "content": f"response: {response}\n\n options: {options}\n\n Explain why you have chosen the option that best fits the response you have. End your explanation with the label of the option you have chosen.",
             },
         ],
         model="openai/gpt-oss-20b",
@@ -99,11 +93,33 @@ def judge_and_parse(response, options):
 
     for _ in range(5):
         judge_response = model_judge(response, options)
-        parsed_answer = extract_answer_label(judge_response)
+        parsed_answer = answer_parser(judge_response)
         if parsed_answer:
             return judge_response, parsed_answer
 
     return judge_response, "UNKNOWN"
+
+
+def judge_with_voting(response, options, actual_answer_label):
+    answers = []
+    judge_responses = []
+
+    for _ in range(5):
+        judge_response, parsed_answer = judge_and_parse(response, options)
+        answers.append(parsed_answer)
+        judge_responses.append(judge_response)
+
+    votes = {option: answers.count(option) for option in dict.fromkeys(answers)}
+    if max(votes.values()) < 4 and votes.get(actual_answer_label, 0) > 0:
+        for _ in range(5):
+            judge_response, parsed_answer = judge_and_parse(response, options)
+            answers.append(parsed_answer)
+            judge_responses.append(judge_response)
+        votes = {option: answers.count(option) for option in dict.fromkeys(answers)}
+
+    parsed_answer = max(votes, key=votes.get)
+    judge_response = judge_responses[answers.index(parsed_answer)]
+    return judge_response, parsed_answer, votes
 
 
 def read_jsonl(path):
@@ -138,13 +154,18 @@ def resample(baseline_obj):
             resample_length,
             question,
         )
-        judge_response, parsed_answer = judge_and_parse(resampled, labelled_options)
+        judge_response, parsed_answer, votes = judge_with_voting(
+            resampled,
+            labelled_options,
+            actual_answer_label,
+        )
         correct = parsed_answer == actual_answer_label
         resample_results.append(
             {
                 "resample_point": point,
                 "response": resampled,
                 "judge_response": judge_response,
+                "votes": votes,
                 "parsed_answer": parsed_answer,
                 "correct": correct,
                 "actual_answer": actual_answer,
@@ -166,9 +187,11 @@ def resample(baseline_obj):
 
 for baseline_obj in read_jsonl(BASELINE_PATH):
     q_id = baseline_obj["question_id"]
+    if q_id == 0:
+        continue
     if baseline_obj["complete_reason"] == "stop":
         print(f"Resampling question {q_id}...")
         resample(baseline_obj)
     else:
         print(f"Skipping question {q_id} because baseline CoT was not complete.")
-
+# resample(next(read_jsonl(BASELINE_PATH)))
