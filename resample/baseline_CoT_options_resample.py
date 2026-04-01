@@ -14,21 +14,22 @@ if str(ROOT_DIR) not in sys.path:
 
 from options_experiment_utils import (
     BASELINE_OPTIONS_PATH,
-    MODEL_ID,
-    OPTIONS_RESULTS_PATH,
-    PROBE_MAX_COMPLETION_TOKENS,
+    OPTIONS_DEFAULT_DATASET_CATEGORY,
     PROBE_METHOD_VERSION,
-    PROBE_TEMPERATURE,
-    PROBE_TOP_P,
-    build_probe_messages,
+    RANDOM_CONTROL_DEFAULT_SEED,
+    RESAMPLE_SCHEMA_VERSION,
+    SUPPORTED_RESAMPLE_CONDITIONS,
+    build_resample_condition_full_token_ids,
+    category_value_matches,
+    decode_token_ids,
     decile_prefix_token_count,
-    extract_final_answer_text,
     extract_reasoning_trace,
-    get_reasoning_token_count,
-    judge_answer_label,
-    probe_response_needs_retry,
+    get_options_results_path,
+    get_reasoning_token_ids,
+    probe_answer,
     read_jsonl,
-    truncate_reasoning_trace,
+    resolve_answer_label,
+    validate_resample_condition,
     write_jsonl,
 )
 
@@ -42,35 +43,23 @@ client = Groq(
 RESAMPLE_POINTS = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
 
 
+def get_row_category(q_id):
+    return ds[q_id].get("category")
+
+
+def category_matches(q_id, category):
+    return category_value_matches(get_row_category(q_id), category)
+
+
+def get_category_qids(category):
+    return [q_id for q_id in range(len(ds)) if category_matches(q_id, category)]
+
+
 def load_baselines():
     return {row["question_id"]: row for row in read_jsonl(BASELINE_OPTIONS_PATH)}
 
 
-def probe_answer(prompt, reasoning_prefix):
-    attempts = (False, True)
-    last_raw_probe_response = ""
-    last_response = ""
-
-    for retry in attempts:
-        completion = client.chat.completions.create(
-            messages=build_probe_messages(prompt, reasoning_prefix, retry=retry),
-            model=MODEL_ID,
-            temperature=PROBE_TEMPERATURE,
-            top_p=PROBE_TOP_P,
-            max_completion_tokens=PROBE_MAX_COMPLETION_TOKENS,
-        )
-        raw_probe_response = completion.choices[0].message.content or ""
-        response = extract_final_answer_text(raw_probe_response)
-
-        last_raw_probe_response = raw_probe_response
-        last_response = response
-        if not probe_response_needs_retry(raw_probe_response, response):
-            break
-
-    return last_raw_probe_response, last_response
-
-
-def resample_baseline(baseline_obj):
+def resample_baseline(baseline_obj, condition, seed):
     q_id = baseline_obj["question_id"]
     reasoning_trace = baseline_obj.get("reasoning_trace")
     if not reasoning_trace:
@@ -78,28 +67,46 @@ def resample_baseline(baseline_obj):
     if not reasoning_trace:
         raise ValueError(f"Question {q_id} has no usable reasoning trace.")
 
+    reasoning_token_ids = get_reasoning_token_ids(reasoning_trace)
     total_tokens = baseline_obj.get("reasoning_token_count")
     if total_tokens is None:
-        total_tokens = get_reasoning_token_count(reasoning_trace)
+        total_tokens = len(reasoning_token_ids)
+    total_tokens = min(int(total_tokens), len(reasoning_token_ids))
+    reasoning_token_ids = reasoning_token_ids[:total_tokens]
 
     prompt = baseline_obj["prompt"]
+    category = baseline_obj.get("category") or get_row_category(q_id)
     options = ds[q_id]["options"]
     actual_answer = ds[q_id]["answer"]
     resample_results = []
+    condition_token_ids, condition_metadata = build_resample_condition_full_token_ids(
+        condition=condition,
+        reasoning_token_ids=reasoning_token_ids,
+        question_id=q_id,
+        base_seed=seed,
+    )
 
     for point in RESAMPLE_POINTS:
         prefix_token_count = decile_prefix_token_count(total_tokens, point)
-        reasoning_prefix = truncate_reasoning_trace(reasoning_trace, prefix_token_count)
-        raw_probe_response, response = probe_answer(prompt, reasoning_prefix)
-        judge_response, answer = judge_answer_label(client, response, options)
+        prefix_token_ids = condition_token_ids[:prefix_token_count]
+        reasoning_prefix = decode_token_ids(prefix_token_ids)
+        raw_probe_response, response = probe_answer(client, prompt, reasoning_prefix)
+        resolution = resolve_answer_label(client, response, options)
+        judge_response = resolution["judge_response"]
+        answer = resolution["answer"]
         correct = answer == actual_answer
         resample_results.append(
             {
                 "resample_point": point,
                 "resample_tokens": prefix_token_count,
+                "injected_prefix_text": reasoning_prefix,
                 "response": response,
                 "raw_probe_response": raw_probe_response,
                 "judge_response": judge_response,
+                "direct_parsed_answer": resolution["direct_parsed_answer"],
+                "judge_parsed_answer": resolution["judge_parsed_answer"],
+                "used_llm_judge": resolution["used_llm_judge"],
+                "answer_source": resolution["answer_source"],
                 "parsed_answer": f"ANSWER: {answer}" if answer != "UNKNOWN" else "UNKNOWN",
                 "answer": answer,
                 "correct": correct,
@@ -109,7 +116,12 @@ def resample_baseline(baseline_obj):
 
     return {
         "question_id": q_id,
+        "category": category,
         "question": baseline_obj.get("question", ds[q_id]["question"]),
+        "prompt": prompt,
+        "condition": condition,
+        "condition_metadata": condition_metadata,
+        "resample_schema_version": RESAMPLE_SCHEMA_VERSION,
         "probe_method_version": PROBE_METHOD_VERSION,
         "reasoning_token_count": total_tokens,
         "resample_results": resample_results,
@@ -118,28 +130,50 @@ def resample_baseline(baseline_obj):
 
 def iter_requested_qids(args):
     if args.question_ids:
-        return args.question_ids
-    return range(args.start, args.end)
+        requested = []
+        for q_id in args.question_ids:
+            if q_id < 0 or q_id >= len(ds):
+                requested.append(q_id)
+                continue
+            if not category_matches(q_id, args.category):
+                print(
+                    f"Skipping question {q_id}; category={get_row_category(q_id)!r} "
+                    f"does not match requested category={args.category!r}."
+                )
+                continue
+            requested.append(q_id)
+        return requested
+    category_qids = get_category_qids(args.category)
+    return category_qids[args.start : args.end]
 
 
-def load_existing_result_rows():
-    if not OPTIONS_RESULTS_PATH.exists():
+def load_existing_result_rows(path):
+    if not path.exists():
         return {}
     return {
         row["question_id"]: row
-        for row in read_jsonl(OPTIONS_RESULTS_PATH)
+        for row in read_jsonl(path)
         if "question_id" in row
     }
 
 
-def row_is_compatible(row):
+def row_is_compatible(row, condition):
     points = row.get("resample_results", [])
     return (
-        row.get("probe_method_version") == PROBE_METHOD_VERSION
+        row.get("category") is not None
+        and row.get("condition") == condition
+        and row.get("resample_schema_version") == RESAMPLE_SCHEMA_VERSION
+        and row.get("probe_method_version") == PROBE_METHOD_VERSION
         and len(points) == len(RESAMPLE_POINTS)
         and all(
-        "resample_tokens" in point and "raw_probe_response" in point
-        for point in points
+            "resample_tokens" in point
+            and "raw_probe_response" in point
+            and "injected_prefix_text" in point
+            and "direct_parsed_answer" in point
+            and "judge_parsed_answer" in point
+            and "used_llm_judge" in point
+            and "answer_source" in point
+            for point in points
         )
     )
 
@@ -148,23 +182,54 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="Resample saved Qwen3-32B options CoTs at token-based deciles."
     )
-    parser.add_argument("--start", type=int, default=0, help="Inclusive start qid.")
+    parser.add_argument(
+        "--start",
+        type=int,
+        default=0,
+        help="Inclusive start index within the selected category subset.",
+    )
     parser.add_argument(
         "--end",
         type=int,
         default=len(ds),
-        help="Exclusive end qid.",
+        help="Exclusive end index within the selected category subset.",
     )
     parser.add_argument(
         "--question-ids",
         type=int,
         nargs="+",
-        help="Specific question ids to run instead of a contiguous range.",
+        help="Specific raw dataset question ids to run instead of a category slice.",
+    )
+    parser.add_argument(
+        "--category",
+        type=str,
+        default=OPTIONS_DEFAULT_DATASET_CATEGORY,
+        help=(
+            "Dataset category to run. Use 'all' to disable category filtering. "
+            f"Default: {OPTIONS_DEFAULT_DATASET_CATEGORY}."
+        ),
     )
     parser.add_argument(
         "--overwrite",
         action="store_true",
         help="Recompute rows even if they already exist in the results file.",
+    )
+    parser.add_argument(
+        "--condition",
+        choices=SUPPORTED_RESAMPLE_CONDITIONS,
+        default="original",
+        help="Which intervention condition to run.",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=RANDOM_CONTROL_DEFAULT_SEED,
+        help="Base seed for stochastic control conditions.",
+    )
+    parser.add_argument(
+        "--output-path",
+        type=Path,
+        help="Optional override for the output JSONL path.",
     )
     return parser.parse_args()
 
@@ -174,12 +239,23 @@ def main():
         raise RuntimeError("GROQ_API_KEY is not set.")
 
     args = parse_args()
+    if not get_category_qids(args.category):
+        raise RuntimeError(
+            f"No questions found for category={args.category!r}. "
+            "Use 'all' to disable category filtering."
+        )
+    condition = validate_resample_condition(args.condition)
+    output_path = args.output_path or get_options_results_path(condition)
     baselines = load_baselines()
-    existing_rows = load_existing_result_rows()
+    existing_rows = load_existing_result_rows(output_path)
     existing_ids = (
         set()
         if args.overwrite
-        else {q_id for q_id, row in existing_rows.items() if row_is_compatible(row)}
+        else {
+            q_id
+            for q_id, row in existing_rows.items()
+            if row_is_compatible(row, condition)
+        }
     )
 
     for q_id in iter_requested_qids(args):
@@ -194,6 +270,12 @@ def main():
         if baseline_obj is None:
             print(f"Skipping question {q_id}; no baseline row found.")
             continue
+        if not category_matches(q_id, args.category):
+            print(
+                f"Skipping question {q_id}; category={get_row_category(q_id)!r} "
+                f"does not match requested category={args.category!r}."
+            )
+            continue
         if baseline_obj.get("complete_reason") != "stop":
             print(
                 f"Skipping question {q_id}; baseline finish_reason="
@@ -201,15 +283,19 @@ def main():
             )
             continue
 
-        print(f"Resampling question {q_id}...")
-        result_obj = resample_baseline(baseline_obj)
+        print(f"Resampling question {q_id} for condition={condition}...")
+        result_obj = resample_baseline(
+            baseline_obj,
+            condition=condition,
+            seed=args.seed,
+        )
         existing_rows[q_id] = result_obj
         write_jsonl(
-            OPTIONS_RESULTS_PATH,
+            output_path,
             [existing_rows[key] for key in sorted(existing_rows)],
         )
         existing_ids.add(q_id)
-        print(f"Saved resample for question {q_id}.")
+        print(f"Saved resample for question {q_id} to {output_path}.")
 
 
 if __name__ == "__main__":

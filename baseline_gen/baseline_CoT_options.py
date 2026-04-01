@@ -18,13 +18,16 @@ from options_experiment_utils import (
     FULL_TRACE_TEMPERATURE,
     FULL_TRACE_TOP_P,
     MODEL_ID,
+    OPTIONS_BASELINE_SCHEMA_VERSION,
+    OPTIONS_DEFAULT_DATASET_CATEGORY,
     SYSTEM_PROMPT,
     build_options_prompt,
+    category_value_matches,
     extract_final_answer_text,
     extract_reasoning_trace,
     get_reasoning_token_count,
-    judge_answer_label,
     read_jsonl,
+    resolve_answer_label,
     write_jsonl,
 )
 
@@ -36,9 +39,22 @@ client = Groq(
 )
 
 
+def get_row_category(q_id):
+    return ds[q_id].get("category")
+
+
+def category_matches(q_id, category):
+    return category_value_matches(get_row_category(q_id), category)
+
+
+def get_category_qids(category):
+    return [q_id for q_id in range(len(ds)) if category_matches(q_id, category)]
+
+
 def baseline_cot(q_id):
     question = ds[q_id]["question"]
     options = ds[q_id]["options"]
+    category = get_row_category(q_id)
     prompt = build_options_prompt(question, options)
     completion = client.chat.completions.create(
         messages=[
@@ -62,36 +78,66 @@ def baseline_cot(q_id):
 
     final_answer_text = ""
     judge_response = None
+    direct_parsed_answer = "UNKNOWN"
+    judge_parsed_answer = None
+    used_llm_judge = False
+    answer_source = "unknown"
     answer = "UNKNOWN"
     if finish_reason == "stop":
         final_answer_text = extract_final_answer_text(raw_response)
-        judge_response, answer = judge_answer_label(
+        resolution = resolve_answer_label(
             client,
             final_answer_text,
             options,
         )
+        judge_response = resolution["judge_response"]
+        direct_parsed_answer = resolution["direct_parsed_answer"]
+        judge_parsed_answer = resolution["judge_parsed_answer"]
+        used_llm_judge = resolution["used_llm_judge"]
+        answer_source = resolution["answer_source"]
+        answer = resolution["answer"]
 
     correct = answer == ds[q_id]["answer"]
     return {
         "question_id": q_id,
+        "category": category,
         "question": question,
         "prompt": prompt,
         "response": raw_response,
         "reasoning_trace": reasoning_trace,
         "reasoning_token_count": reasoning_token_count,
         "final_answer_text": final_answer_text,
+        "parsed_answer": f"ANSWER: {answer}" if answer != "UNKNOWN" else "UNKNOWN",
         "judge_response": judge_response,
+        "direct_parsed_answer": direct_parsed_answer,
+        "judge_parsed_answer": judge_parsed_answer,
+        "used_llm_judge": used_llm_judge,
+        "answer_source": answer_source,
         "answer": answer,
         "correct": correct,
         "actual_answer": ds[q_id]["answer"],
+        "baseline_schema_version": OPTIONS_BASELINE_SCHEMA_VERSION,
         "complete_reason": finish_reason,
     }
 
 
 def iter_requested_qids(args):
     if args.question_ids:
-        return args.question_ids
-    return range(args.start, args.end)
+        requested = []
+        for q_id in args.question_ids:
+            if q_id < 0 or q_id >= len(ds):
+                requested.append(q_id)
+                continue
+            if not category_matches(q_id, args.category):
+                print(
+                    f"Skipping question {q_id}; category={get_row_category(q_id)!r} "
+                    f"does not match requested category={args.category!r}."
+                )
+                continue
+            requested.append(q_id)
+        return requested
+    category_qids = get_category_qids(args.category)
+    return category_qids[args.start : args.end]
 
 
 def load_existing_baseline_rows():
@@ -106,7 +152,9 @@ def load_existing_baseline_rows():
 
 def row_is_compatible(row):
     return (
-        "reasoning_token_count" in row
+        row.get("baseline_schema_version") == OPTIONS_BASELINE_SCHEMA_VERSION
+        and row.get("category") is not None
+        and "reasoning_token_count" in row
         and "final_answer_text" in row
         and "answer" in row
     )
@@ -116,18 +164,32 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="Generate baseline Qwen3-32B CoTs for MMLU-Pro options prompts."
     )
-    parser.add_argument("--start", type=int, default=0, help="Inclusive start qid.")
+    parser.add_argument(
+        "--start",
+        type=int,
+        default=0,
+        help="Inclusive start index within the selected category subset.",
+    )
     parser.add_argument(
         "--end",
         type=int,
         default=len(ds),
-        help="Exclusive end qid.",
+        help="Exclusive end index within the selected category subset.",
     )
     parser.add_argument(
         "--question-ids",
         type=int,
         nargs="+",
-        help="Specific question ids to run instead of a contiguous range.",
+        help="Specific raw dataset question ids to run instead of a category slice.",
+    )
+    parser.add_argument(
+        "--category",
+        type=str,
+        default=OPTIONS_DEFAULT_DATASET_CATEGORY,
+        help=(
+            "Dataset category to run. Use 'all' to disable category filtering. "
+            f"Default: {OPTIONS_DEFAULT_DATASET_CATEGORY}."
+        ),
     )
     parser.add_argument(
         "--overwrite",
@@ -142,6 +204,11 @@ def main():
         raise RuntimeError("GROQ_API_KEY is not set.")
 
     args = parse_args()
+    if not get_category_qids(args.category):
+        raise RuntimeError(
+            f"No questions found for category={args.category!r}. "
+            "Use 'all' to disable category filtering."
+        )
     existing_rows = load_existing_baseline_rows()
     existing_ids = (
         set()

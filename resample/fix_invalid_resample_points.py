@@ -1,3 +1,4 @@
+import argparse
 import os
 import sys
 from pathlib import Path
@@ -12,21 +13,19 @@ if str(ROOT_DIR) not in sys.path:
 
 from options_experiment_utils import (
     BASELINE_OPTIONS_PATH,
-    MODEL_ID,
-    OPTIONS_RESULTS_PATH,
-    PROBE_MAX_COMPLETION_TOKENS,
-    PROBE_TEMPERATURE,
-    PROBE_TOP_P,
-    build_probe_messages,
+    RANDOM_CONTROL_DEFAULT_SEED,
+    SUPPORTED_RESAMPLE_CONDITIONS,
+    build_resample_condition_full_token_ids,
+    decode_token_ids,
     decile_prefix_token_count,
-    extract_final_answer_text,
     extract_options_from_prompt,
     extract_reasoning_trace,
-    get_reasoning_token_count,
-    judge_answer_label,
-    probe_response_needs_retry,
+    get_options_results_path,
+    get_reasoning_token_ids,
+    probe_answer,
     read_jsonl,
-    truncate_reasoning_trace,
+    resolve_answer_label,
+    validate_resample_condition,
     write_jsonl,
 )
 
@@ -45,30 +44,6 @@ def point_needs_fix(point):
     return answer in {"", "UNKNOWN", "INVALID"}
 
 
-def probe_answer(prompt, reasoning_prefix):
-    attempts = (False, True)
-    last_raw_probe_response = ""
-    last_response = ""
-
-    for retry in attempts:
-        completion = client.chat.completions.create(
-            messages=build_probe_messages(prompt, reasoning_prefix, retry=retry),
-            model=MODEL_ID,
-            temperature=PROBE_TEMPERATURE,
-            top_p=PROBE_TOP_P,
-            max_completion_tokens=PROBE_MAX_COMPLETION_TOKENS,
-        )
-        raw_probe_response = completion.choices[0].message.content or ""
-        response = extract_final_answer_text(raw_probe_response)
-
-        last_raw_probe_response = raw_probe_response
-        last_response = response
-        if not probe_response_needs_retry(raw_probe_response, response):
-            break
-
-    return last_raw_probe_response, last_response
-
-
 def prompt_for_acceptance(candidate):
     print("\nCandidate response:")
     print(candidate)
@@ -80,20 +55,29 @@ def prompt_for_acceptance(candidate):
         print("Please enter 'y' or 'n'.")
 
 
-def repair_point(question_id, point, baseline_obj, options):
+def repair_point(question_id, point, baseline_obj, options, condition, seed):
     reasoning_trace = baseline_obj.get("reasoning_trace")
     if not reasoning_trace:
         reasoning_trace = extract_reasoning_trace(baseline_obj.get("response", ""))
     if not reasoning_trace:
         raise ValueError(f"Question {question_id} has no usable reasoning trace.")
 
+    reasoning_token_ids = get_reasoning_token_ids(reasoning_trace)
     total_tokens = baseline_obj.get("reasoning_token_count")
     if total_tokens is None:
-        total_tokens = get_reasoning_token_count(reasoning_trace)
+        total_tokens = len(reasoning_token_ids)
+    total_tokens = min(int(total_tokens), len(reasoning_token_ids))
+    reasoning_token_ids = reasoning_token_ids[:total_tokens]
 
     resample_point = point["resample_point"]
     prefix_token_count = decile_prefix_token_count(total_tokens, resample_point)
-    reasoning_prefix = truncate_reasoning_trace(reasoning_trace, prefix_token_count)
+    condition_token_ids, _ = build_resample_condition_full_token_ids(
+        condition=condition,
+        reasoning_token_ids=reasoning_token_ids,
+        question_id=question_id,
+        base_seed=seed,
+    )
+    reasoning_prefix = decode_token_ids(condition_token_ids[:prefix_token_count])
 
     print(f"\nQuestion {question_id} | resample point {resample_point}")
     print("\nCurrent saved response:")
@@ -101,18 +85,26 @@ def repair_point(question_id, point, baseline_obj, options):
 
     while True:
         raw_probe_response, response = probe_answer(
+            client,
             baseline_obj["prompt"],
             reasoning_prefix,
         )
         if not prompt_for_acceptance(response):
             continue
 
-        judge_response, answer = judge_answer_label(client, response, options)
+        resolution = resolve_answer_label(client, response, options)
+        judge_response = resolution["judge_response"]
+        answer = resolution["answer"]
         updated_point = dict(point)
         updated_point["resample_tokens"] = prefix_token_count
+        updated_point["injected_prefix_text"] = reasoning_prefix
         updated_point["response"] = response
         updated_point["raw_probe_response"] = raw_probe_response
         updated_point["judge_response"] = judge_response
+        updated_point["direct_parsed_answer"] = resolution["direct_parsed_answer"]
+        updated_point["judge_parsed_answer"] = resolution["judge_parsed_answer"]
+        updated_point["used_llm_judge"] = resolution["used_llm_judge"]
+        updated_point["answer_source"] = resolution["answer_source"]
         updated_point["parsed_answer"] = (
             f"ANSWER: {answer}" if answer != "UNKNOWN" else "UNKNOWN"
         )
@@ -121,11 +113,38 @@ def repair_point(question_id, point, baseline_obj, options):
         return updated_point
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Repair invalid options resample points for a given condition."
+    )
+    parser.add_argument(
+        "--condition",
+        choices=SUPPORTED_RESAMPLE_CONDITIONS,
+        default="original",
+        help="Which intervention condition to repair.",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=RANDOM_CONTROL_DEFAULT_SEED,
+        help="Base seed for stochastic control conditions.",
+    )
+    parser.add_argument(
+        "--output-path",
+        type=Path,
+        help="Optional override for the results JSONL path.",
+    )
+    return parser.parse_args()
+
+
 def fix_invalid_points():
     if not os.environ.get("GROQ_API_KEY"):
         raise RuntimeError("GROQ_API_KEY is not set.")
 
-    results = list(read_jsonl(OPTIONS_RESULTS_PATH))
+    args = parse_args()
+    condition = validate_resample_condition(args.condition)
+    results_path = args.output_path or get_options_results_path(condition)
+    results = list(read_jsonl(results_path))
     baselines = load_baselines()
 
     fixed_count = 0
@@ -149,9 +168,16 @@ def fix_invalid_points():
                 continue
 
             total_invalid += 1
-            updated_point = repair_point(question_id, point, baseline_obj, option_texts)
+            updated_point = repair_point(
+                question_id,
+                point,
+                baseline_obj,
+                option_texts,
+                condition=condition,
+                seed=args.seed,
+            )
             segment["resample_results"][idx] = updated_point
-            write_jsonl(OPTIONS_RESULTS_PATH, results)
+            write_jsonl(results_path, results)
             print(
                 f"Saved updated result for question {question_id} at point "
                 f"{point['resample_point']}."

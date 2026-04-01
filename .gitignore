@@ -1,1 +1,3 @@
 .venv
+temp
+*.cpython-312.pyc

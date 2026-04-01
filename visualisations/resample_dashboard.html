@@ -1,0 +1,3559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Resample Comparison Dashboard</title>
+  <style>
+    :root {
+      --bg: #f5f1e8;
+      --bg-deep: #e7dbc1;
+      --panel: rgba(255, 251, 244, 0.92);
+      --panel-strong: rgba(255, 248, 238, 0.98);
+      --line: rgba(153, 126, 92, 0.26);
+      --line-strong: rgba(123, 95, 63, 0.42);
+      --text: #21170f;
+      --muted: #6c5a48;
+      --accent: #c65b22;
+      --accent-2: #184c55;
+      --accent-3: #8d7d34;
+      --accent-4: #5b5fa8;
+      --good: #2d8956;
+      --good-soft: #d7f0df;
+      --bad: #b13f33;
+      --bad-soft: #f8d8d5;
+      --warn: #8c6e12;
+      --warn-soft: #f5e9b8;
+      --shadow: 0 18px 42px rgba(52, 32, 11, 0.12);
+      --radius: 18px;
+      --mono: "SFMono-Regular", "Cascadia Mono", "Menlo", monospace;
+      --sans: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
+      --series-open-original: #184c55;
+      --series-options-original: #c65b22;
+      --series-options-random: #8d7d34;
+      --series-options-shuffle: #5b5fa8;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--sans);
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(198, 91, 34, 0.16), transparent 26%),
+        radial-gradient(circle at 88% 12%, rgba(24, 76, 85, 0.16), transparent 22%),
+        linear-gradient(180deg, var(--bg), #faf7f1 34%, #fdfbf7 100%);
+    }
+
+    .shell {
+      width: 100%;
+      max-width: none;
+      margin: 0;
+      padding: 12px;
+      display: grid;
+      gap: 18px;
+    }
+
+    .hero,
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(12px);
+    }
+
+    .hero {
+      padding: 24px;
+      display: grid;
+      gap: 18px;
+      background:
+        linear-gradient(135deg, rgba(255, 250, 243, 0.96), rgba(248, 238, 219, 0.92)),
+        var(--panel);
+    }
+
+    .hero-top {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 14px 22px;
+      align-items: end;
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      font-size: 0.82rem;
+      font-weight: 800;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(2rem, 4vw, 3.8rem);
+      line-height: 0.98;
+      max-width: 10ch;
+    }
+
+    .hero-summary {
+      max-width: 48ch;
+      color: var(--muted);
+      line-height: 1.6;
+      margin: 0;
+    }
+
+    .hero-pillbox {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-content: start;
+      justify-content: flex-end;
+    }
+
+    .hero-pill {
+      padding: 10px 14px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(123, 95, 63, 0.22);
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-weight: 700;
+    }
+
+    .hero-pill strong {
+      color: var(--text);
+    }
+
+    .status-strip {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: stretch;
+    }
+
+    .status {
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.66);
+      border: 1px solid rgba(123, 95, 63, 0.22);
+      color: var(--muted);
+      line-height: 1.5;
+      min-height: 56px;
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    input[type="file"],
+    input[type="search"],
+    select {
+      width: 100%;
+      border-radius: 12px;
+      border: 1px solid rgba(123, 95, 63, 0.24);
+      background: rgba(255, 255, 255, 0.88);
+      color: var(--text);
+    }
+
+    input[type="search"],
+    select {
+      padding: 10px 12px;
+    }
+
+    .reload {
+      border: 0;
+      padding: 12px 16px;
+      border-radius: 14px;
+      font-weight: 800;
+      color: #fff7ef;
+      background: linear-gradient(135deg, var(--accent), #dd7540);
+      box-shadow: 0 14px 26px rgba(198, 91, 34, 0.24);
+      transition: transform 120ms ease, box-shadow 120ms ease;
+      min-width: 190px;
+    }
+
+    .reload:hover,
+    .reload:focus-visible {
+      transform: translateY(-1px);
+      outline: none;
+      box-shadow: 0 16px 30px rgba(198, 91, 34, 0.3);
+    }
+
+    .data-grid,
+    .control-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .data-grid {
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+    }
+
+    .control-grid {
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+    }
+
+    .cardish {
+      padding: 14px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.62);
+      border: 1px solid rgba(123, 95, 63, 0.22);
+    }
+
+    .control-card,
+    .filter-card {
+      display: grid;
+      gap: 8px;
+    }
+
+    .control-card label,
+    .filter-card label,
+    .toggle-card span,
+    .section-overline {
+      font-size: 0.76rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .control-card small,
+    .filter-card small {
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .filter-span-3 {
+      grid-column: span 3;
+    }
+
+    .filter-span-4 {
+      grid-column: span 4;
+    }
+
+    .filter-span-5 {
+      grid-column: span 5;
+    }
+
+    .filter-span-6 {
+      grid-column: span 6;
+    }
+
+    .filter-span-8 {
+      grid-column: span 8;
+    }
+
+    .toggle-card {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px;
+      border-radius: 16px;
+      background: rgba(24, 76, 85, 0.06);
+      border: 1px solid rgba(24, 76, 85, 0.14);
+      min-height: 52px;
+    }
+
+    .toggle-card input {
+      margin: 0;
+      accent-color: var(--accent-2);
+    }
+
+    .panel {
+      padding: 18px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .panel-head {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 10px 14px;
+      align-items: end;
+    }
+
+    .panel-head h2 {
+      margin: 0;
+      font-size: 1rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent-2);
+    }
+
+    .panel-caption {
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.45;
+      margin: 0;
+      max-width: 70ch;
+    }
+
+    .series-picker {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .series-chip {
+      position: relative;
+      display: inline-grid;
+      gap: 2px;
+      min-width: 170px;
+      padding: 12px 14px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.88);
+      border: 1px solid rgba(123, 95, 63, 0.18);
+      cursor: pointer;
+      transition: transform 100ms ease, border-color 100ms ease, box-shadow 100ms ease;
+    }
+
+    .series-chip input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .series-chip:hover,
+    .series-chip:focus-within {
+      transform: translateY(-1px);
+      border-color: rgba(24, 76, 85, 0.32);
+      box-shadow: 0 10px 22px rgba(24, 76, 85, 0.1);
+    }
+
+    .series-chip.disabled {
+      opacity: 0.55;
+      cursor: default;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .series-chip strong {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.95rem;
+    }
+
+    .series-chip strong::before {
+      content: "";
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: currentColor;
+      box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.05);
+    }
+
+    .series-chip span {
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.35;
+    }
+
+    .series-chip.active {
+      border-color: currentColor;
+      background: rgba(255, 255, 255, 0.98);
+      box-shadow: 0 14px 26px rgba(24, 76, 85, 0.12);
+    }
+
+    .series-open-original {
+      color: var(--series-open-original);
+    }
+
+    .series-options-original {
+      color: var(--series-options-original);
+    }
+
+    .series-options-random {
+      color: var(--series-options-random);
+    }
+
+    .series-options-shuffle {
+      color: var(--series-options-shuffle);
+    }
+
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.28fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 10px;
+    }
+
+    .summary-card {
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.68);
+      border: 1px solid rgba(123, 95, 63, 0.18);
+    }
+
+    .summary-card strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 0.76rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .summary-card span {
+      display: block;
+      font-size: 1.22rem;
+      font-weight: 800;
+      line-height: 1.1;
+      word-break: break-word;
+    }
+
+    .series-summary-grid,
+    .spotlight-grid,
+    .compare-strip {
+      display: grid;
+      gap: 10px;
+    }
+
+    .series-summary-grid {
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+
+    .series-summary-card {
+      padding: 16px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.7);
+      border: 1px solid rgba(123, 95, 63, 0.2);
+      display: grid;
+      gap: 12px;
+    }
+
+    .series-summary-card header {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: start;
+    }
+
+    .series-summary-card header strong {
+      font-size: 1rem;
+    }
+
+    .series-tag {
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      background: rgba(0, 0, 0, 0.06);
+    }
+
+    .series-stats {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .series-stat {
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(123, 95, 63, 0.16);
+    }
+
+    .series-stat strong {
+      display: block;
+      font-size: 0.72rem;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .series-stat span {
+      font-weight: 800;
+      font-family: var(--mono);
+      font-size: 0.98rem;
+    }
+
+    .chart-card {
+      display: grid;
+      gap: 14px;
+    }
+
+    .chart-shell {
+      overflow: hidden;
+      border-radius: 16px;
+      border: 1px solid rgba(123, 95, 63, 0.18);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(251, 245, 236, 0.92));
+    }
+
+    .chart-svg {
+      display: block;
+      width: 100%;
+      height: auto;
+      min-height: 280px;
+    }
+
+    .chart-grid-line {
+      stroke: rgba(123, 95, 63, 0.18);
+      stroke-width: 1;
+    }
+
+    .chart-baseline {
+      stroke: rgba(123, 95, 63, 0.38);
+      stroke-width: 1.4;
+    }
+
+    .chart-axis-label {
+      fill: var(--muted);
+      font-size: 12px;
+      font-family: var(--sans);
+    }
+
+    .chart-point-label {
+      fill: var(--text);
+      font-size: 10px;
+      font-weight: 800;
+      font-family: var(--sans);
+    }
+
+    .chart-empty {
+      fill: var(--muted);
+      font-family: var(--sans);
+      font-size: 14px;
+    }
+
+    .spotlight-grid {
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+
+    .spotlight-card {
+      padding: 14px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(123, 95, 63, 0.18);
+      display: grid;
+      gap: 10px;
+    }
+
+    .spotlight-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: baseline;
+    }
+
+    .spotlight-head strong {
+      font-size: 0.98rem;
+    }
+
+    .spotlight-value {
+      font-family: var(--mono);
+      font-weight: 800;
+      color: var(--muted);
+    }
+
+    .spotlight-bar {
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(123, 95, 63, 0.12);
+      overflow: hidden;
+    }
+
+    .spotlight-bar > span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .matrix-panel {
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .matrix-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px 18px;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .matrix-toolbar .panel-caption {
+      margin: 0;
+    }
+
+    .matrix-wrap {
+      overflow: auto;
+      border-radius: 16px;
+      border: 1px solid rgba(123, 95, 63, 0.22);
+      background: rgba(255, 255, 255, 0.48);
+    }
+
+    table {
+      width: 100%;
+      min-width: 0;
+      border-collapse: separate;
+      border-spacing: 0;
+      table-layout: fixed;
+    }
+
+    thead th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: var(--panel-strong);
+      padding: 10px 6px;
+      font-size: 0.74rem;
+      font-weight: 800;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--muted);
+      border-bottom: 1px solid rgba(123, 95, 63, 0.2);
+      text-align: center;
+    }
+
+    thead th:first-child {
+      z-index: 3;
+    }
+
+    tbody tr:hover th,
+    tbody tr:hover td {
+      background: rgba(24, 76, 85, 0.03);
+    }
+
+    tbody td,
+    tbody th {
+      border-bottom: 1px solid rgba(123, 95, 63, 0.14);
+    }
+
+    .question-cell {
+      position: sticky;
+      left: 0;
+      z-index: 1;
+      background: var(--panel-strong);
+      min-width: 136px;
+      max-width: 136px;
+      width: 136px;
+      padding: 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .question-card {
+      display: grid;
+      gap: 8px;
+    }
+
+    .question-top {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .qid-badge,
+    .meta-badge,
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      padding: 4px 8px;
+      font-size: 0.68rem;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+    }
+
+    .qid-badge {
+      font-family: var(--mono);
+      background: rgba(24, 76, 85, 0.08);
+      color: var(--accent-2);
+      border: 1px solid rgba(24, 76, 85, 0.12);
+    }
+
+    .qid-badge.baseline-good {
+      background: var(--good-soft);
+      color: var(--good);
+      border-color: rgba(45, 137, 86, 0.18);
+    }
+
+    .qid-badge.baseline-bad {
+      background: var(--bad-soft);
+      color: var(--bad);
+      border-color: rgba(177, 63, 51, 0.18);
+    }
+
+    .meta-badge {
+      background: rgba(123, 95, 63, 0.08);
+      color: var(--muted);
+      border: 1px solid rgba(123, 95, 63, 0.14);
+    }
+
+    .question-meta {
+      display: grid;
+      gap: 6px;
+    }
+
+    .row-stat {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--muted);
+      line-height: 1.3;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .trajectory-strip {
+      display: flex;
+      gap: 3px;
+      align-items: center;
+    }
+
+    .trajectory-dot {
+      flex: 1 1 0;
+      height: 11px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      background: rgba(123, 95, 63, 0.08);
+    }
+
+    .trajectory-dot.good {
+      background: var(--good-soft);
+      border-color: rgba(45, 137, 86, 0.18);
+    }
+
+    .trajectory-dot.bad {
+      background: var(--bad-soft);
+      border-color: rgba(177, 63, 51, 0.18);
+    }
+
+    .trajectory-dot.missing {
+      background: rgba(123, 95, 63, 0.08);
+      border-color: rgba(123, 95, 63, 0.08);
+    }
+
+    .trajectory-dot.spotlight {
+      box-shadow: inset 0 0 0 2px rgba(198, 91, 34, 0.2);
+    }
+
+    .trajectory-dot.active {
+      border-color: var(--accent-2);
+      box-shadow: 0 0 0 2px rgba(24, 76, 85, 0.14);
+    }
+
+    .matrix-point-head.spotlight {
+      background: rgba(198, 91, 34, 0.08);
+      color: var(--accent);
+    }
+
+    .matrix-cell {
+      padding: 2px;
+      text-align: center;
+    }
+
+    .matrix-button {
+      width: 100%;
+      min-width: 30px;
+      height: 28px;
+      display: inline-grid;
+      place-items: center;
+      border: 1px solid transparent;
+      border-radius: 9px;
+      font-weight: 800;
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      letter-spacing: 0.03em;
+      transition: transform 100ms ease, border-color 100ms ease, box-shadow 100ms ease;
+    }
+
+    .matrix-button.good {
+      background: var(--good-soft);
+      color: var(--good);
+      border-color: rgba(45, 137, 86, 0.18);
+    }
+
+    .matrix-button.bad {
+      background: var(--bad-soft);
+      color: var(--bad);
+      border-color: rgba(177, 63, 51, 0.18);
+    }
+
+    .matrix-button.missing {
+      background: rgba(123, 95, 63, 0.08);
+      color: rgba(33, 23, 15, 0.42);
+      border-color: rgba(123, 95, 63, 0.1);
+      cursor: default;
+    }
+
+    .matrix-button:not(.missing):hover,
+    .matrix-button:not(.missing):focus-visible {
+      transform: translateY(-1px);
+      outline: none;
+      border-color: rgba(24, 76, 85, 0.35);
+      box-shadow: 0 10px 20px rgba(24, 76, 85, 0.1);
+    }
+
+    .matrix-button.active {
+      border-color: var(--accent-2);
+      box-shadow: 0 0 0 3px rgba(24, 76, 85, 0.18);
+    }
+
+    .matrix-button.spotlight {
+      box-shadow: inset 0 0 0 2px rgba(198, 91, 34, 0.22);
+    }
+
+    .placeholder {
+      padding: 18px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.62);
+      border: 1px dashed rgba(123, 95, 63, 0.26);
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .detail-panel {
+      position: sticky;
+      top: 12px;
+      align-self: start;
+      max-height: calc(100vh - 24px);
+      overflow: hidden;
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    .selection-shell {
+      display: grid;
+      gap: 14px;
+      min-height: 0;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      scrollbar-gutter: stable;
+      padding-right: 4px;
+    }
+
+    #detailPlaceholder {
+      min-height: 0;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+
+    .question-hero {
+      padding: 16px;
+      border-radius: 18px;
+      background:
+        linear-gradient(135deg, rgba(24, 76, 85, 0.08), rgba(255, 255, 255, 0.88));
+      border: 1px solid rgba(24, 76, 85, 0.12);
+      display: grid;
+      gap: 12px;
+    }
+
+    .question-hero-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: start;
+      flex-wrap: wrap;
+    }
+
+    .question-hero h3 {
+      margin: 0;
+      font-size: 1.15rem;
+      line-height: 1.25;
+    }
+
+    .question-hero p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+
+    .compare-strip {
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    }
+
+    .compare-card {
+      padding: 14px;
+      border-radius: 16px;
+      border: 1px solid rgba(123, 95, 63, 0.18);
+      background: rgba(255, 255, 255, 0.72);
+      display: grid;
+      gap: 8px;
+    }
+
+    .compare-card header {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: baseline;
+    }
+
+    .compare-card strong {
+      font-size: 0.95rem;
+    }
+
+    .compare-card small {
+      color: var(--muted);
+      line-height: 1.4;
+    }
+
+    .status-pill.good {
+      color: var(--good);
+      background: var(--good-soft);
+    }
+
+    .status-pill.bad {
+      color: var(--bad);
+      background: var(--bad-soft);
+    }
+
+    .status-pill.warn {
+      color: var(--warn);
+      background: var(--warn-soft);
+    }
+
+    .status-pill.neutral {
+      color: var(--muted);
+      background: rgba(123, 95, 63, 0.08);
+    }
+
+    .detail-stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    .detail-card {
+      border-radius: 18px;
+      border: 1px solid rgba(123, 95, 63, 0.18);
+      background: rgba(255, 255, 255, 0.72);
+      overflow: hidden;
+    }
+
+    .detail-card summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 14px 16px;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: start;
+      background: rgba(255, 255, 255, 0.76);
+    }
+
+    .detail-card summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .detail-card[open] summary {
+      border-bottom: 1px solid rgba(123, 95, 63, 0.16);
+    }
+
+    .detail-card-body {
+      padding: 14px 16px 16px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .detail-headline {
+      display: grid;
+      gap: 5px;
+    }
+
+    .detail-headline strong {
+      font-size: 1rem;
+    }
+
+    .detail-headline small {
+      color: var(--muted);
+      line-height: 1.4;
+    }
+
+    .detail-kpis {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .detail-kpi {
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.76);
+      border: 1px solid rgba(123, 95, 63, 0.16);
+    }
+
+    .detail-kpi strong {
+      display: block;
+      font-size: 0.72rem;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .detail-kpi span {
+      display: block;
+      font-family: var(--mono);
+      font-size: 0.95rem;
+      font-weight: 800;
+      word-break: break-word;
+    }
+
+    .detail-blocks {
+      display: grid;
+      gap: 10px;
+    }
+
+    .detail-block {
+      display: grid;
+      gap: 6px;
+    }
+
+    .detail-block label {
+      font-size: 0.76rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .detail-block pre {
+      margin: 0;
+      padding: 14px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.78);
+      border: 1px solid rgba(123, 95, 63, 0.16);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 0.84rem;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 240px;
+      overflow: auto;
+    }
+
+    @media (max-width: 1220px) {
+      .dashboard-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 1080px) {
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+
+      .detail-panel {
+        position: static;
+        max-height: none;
+        overflow: visible;
+        grid-template-rows: none;
+      }
+
+      .selection-shell,
+      #detailPlaceholder {
+        overflow: visible;
+        padding-right: 0;
+      }
+    }
+
+    @media (max-width: 980px) {
+      .data-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .control-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .filter-span-3,
+      .filter-span-4,
+      .filter-span-5,
+      .filter-span-6,
+      .filter-span-8 {
+        grid-column: span 1;
+      }
+
+      .status-strip {
+        grid-template-columns: 1fr;
+      }
+
+      .hero-top {
+        flex-direction: column;
+        align-items: start;
+      }
+
+      .hero-pillbox {
+        justify-content: start;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .shell {
+        padding: 8px;
+      }
+
+      .hero,
+      .panel {
+        padding: 16px;
+      }
+
+      .data-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .detail-kpis {
+        grid-template-columns: 1fr;
+      }
+
+      .question-cell {
+        min-width: 118px;
+        max-width: 118px;
+        width: 118px;
+      }
+
+      .matrix-button {
+        min-width: 24px;
+        height: 24px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <div class="hero-top">
+        <div>
+          <p class="eyebrow">Unified Visualisation</p>
+          <h1>Resample Comparison Dashboard</h1>
+          <p class="hero-summary">
+            View open free-form probing and options-based probing in one place. Filter the question set, compare multiple series,
+            switch the matrix focus independently, and inspect the exact selected question and resample point across series at once.
+          </p>
+        </div>
+        <div class="hero-pillbox" id="heroPills">
+          <div class="hero-pill"><strong>1 page</strong> for open + options</div>
+          <div class="hero-pill"><strong>Independent</strong> compare and matrix focus</div>
+          <div class="hero-pill"><strong>Shared drilldown</strong> at the selected point</div>
+        </div>
+      </div>
+
+      <div class="status-strip">
+        <div class="status" id="status">
+          Waiting for data. Click Reload Project Files to load the repository automatically, or use the file pickers below.
+        </div>
+        <button class="reload" id="reloadButton" type="button">Reload Project Files</button>
+      </div>
+
+      <div class="data-grid">
+        <div class="cardish control-card">
+          <label for="openResultsFile">Open Results JSONL</label>
+          <input id="openResultsFile" type="file" accept=".jsonl,.txt,application/json">
+          <small>Expected: `resample_results/open_results.jsonl`</small>
+        </div>
+        <div class="cardish control-card">
+          <label for="openBaselineFile">Open Baseline JSONL</label>
+          <input id="openBaselineFile" type="file" accept=".jsonl,.txt,application/json">
+          <small>Expected: `baseline/baseline_CoTs_open.jsonl`</small>
+        </div>
+        <div class="cardish control-card">
+          <label for="optionsOriginalFile">Options Original JSONL</label>
+          <input id="optionsOriginalFile" type="file" accept=".jsonl,.txt,application/json">
+          <small>Expected: `resample_results/options_results.jsonl`</small>
+        </div>
+        <div class="cardish control-card">
+          <label for="optionsRandomFile">Options Random JSONL</label>
+          <input id="optionsRandomFile" type="file" accept=".jsonl,.txt,application/json">
+          <small>Expected: `resample_results/options_random_results.jsonl`</small>
+        </div>
+        <div class="cardish control-card">
+          <label for="optionsShuffleFile">Options Shuffle JSONL</label>
+          <input id="optionsShuffleFile" type="file" accept=".jsonl,.txt,application/json">
+          <small>Expected: `resample_results/options_shuffle_results.jsonl`</small>
+        </div>
+        <div class="cardish control-card">
+          <label for="optionsBaselineFile">Options Baseline JSONL</label>
+          <input id="optionsBaselineFile" type="file" accept=".jsonl,.txt,application/json">
+          <small>Expected: `baseline/baseline_CoTs_options.jsonl`</small>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Filters And Focus</h2>
+          <p class="panel-caption">
+            Choose which series participate in comparison cards and charts, then focus the matrix on whichever single series you want to inspect in detail.
+          </p>
+        </div>
+      </div>
+
+      <div class="control-grid">
+        <div class="cardish filter-card filter-span-8">
+          <label>Compare Series</label>
+          <div class="series-picker" id="seriesPicker"></div>
+        </div>
+
+        <div class="cardish filter-card filter-span-4">
+          <label for="matrixSeriesSelect">Matrix Focus</label>
+          <select id="matrixSeriesSelect"></select>
+          <small>The matrix can stay on one series while the chart compares several.</small>
+        </div>
+
+        <div class="cardish filter-card filter-span-3">
+          <label for="categoryFilterSelect">Category</label>
+          <select id="categoryFilterSelect">
+            <option value="all">All Categories</option>
+          </select>
+        </div>
+
+        <div class="cardish filter-card filter-span-3">
+          <label for="baselineFilterSelect">Baseline Outcome</label>
+          <select id="baselineFilterSelect">
+            <option value="all">All Baselines</option>
+            <option value="correct">Baseline Correct</option>
+            <option value="incorrect">Baseline Incorrect</option>
+            <option value="unknown">Baseline Unknown</option>
+          </select>
+        </div>
+
+        <div class="cardish filter-card filter-span-3">
+          <label for="rowPatternSelect">Resample Trajectory</label>
+          <select id="rowPatternSelect">
+            <option value="all">All Question Trajectories</option>
+            <option value="any_correct">At Least One Correct Point</option>
+            <option value="always_wrong">Always Wrong</option>
+            <option value="always_correct">Always Correct</option>
+            <option value="mixed">Mixed Correct / Incorrect</option>
+          </select>
+        </div>
+
+        <div class="cardish filter-card filter-span-3">
+          <label for="sortModeSelect">Matrix Sort</label>
+          <select id="sortModeSelect">
+            <option value="question_id">Question ID</option>
+            <option value="spotlight">Spotlight Point First</option>
+            <option value="accuracy_desc">Highest Row Accuracy</option>
+            <option value="category">Category Then ID</option>
+          </select>
+        </div>
+
+        <div class="cardish filter-card filter-span-3">
+          <label for="matrixRowLimitSelect">Matrix Rows</label>
+          <select id="matrixRowLimitSelect">
+            <option value="25">25 Rows</option>
+            <option value="50" selected>50 Rows</option>
+            <option value="100">100 Rows</option>
+            <option value="250">250 Rows</option>
+            <option value="all">All Rows</option>
+          </select>
+        </div>
+
+        <div class="cardish filter-card filter-span-3">
+          <label for="spotlightPointSelect">Spotlight Point</label>
+          <select id="spotlightPointSelect"></select>
+        </div>
+
+        <div class="cardish filter-card filter-span-6">
+          <label for="questionSearchInput">Question Search</label>
+          <input id="questionSearchInput" type="search" placeholder="Search question id, text, or category">
+          <small>Used across charts, summaries, the matrix, and the drilldown.</small>
+        </div>
+
+        <label class="toggle-card filter-span-3" for="excludeAlwaysWrongToggle">
+          <input id="excludeAlwaysWrongToggle" type="checkbox">
+          <span>Exclude always-wrong rows from chart summaries only</span>
+        </label>
+      </div>
+    </section>
+
+    <section class="dashboard-grid">
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Overview</h2>
+            <p class="panel-caption">These cards reflect the currently filtered question subset. Matrix row limits do not affect these summaries.</p>
+          </div>
+        </div>
+        <div class="summary-grid" id="topStatsGrid"></div>
+        <div class="series-summary-grid" id="seriesSummaryGrid"></div>
+      </div>
+
+      <div class="panel chart-card">
+        <div class="panel-head">
+          <div>
+            <h2>Accuracy Comparison</h2>
+            <p class="panel-caption" id="chartCaption">Load data to compare accuracy trajectories by resample point.</p>
+          </div>
+        </div>
+        <div class="chart-shell">
+          <svg
+            id="accuracyChart"
+            class="chart-svg"
+            viewBox="0 0 880 300"
+            preserveAspectRatio="none"
+            role="img"
+            aria-label="Accuracy by resample point"
+          ></svg>
+        </div>
+        <div class="spotlight-grid" id="spotlightGrid"></div>
+      </div>
+    </section>
+
+    <section class="workspace">
+      <div class="panel matrix-panel">
+        <div class="matrix-toolbar">
+          <div>
+            <h2>Matrix</h2>
+            <p class="panel-caption" id="matrixCaption">The matrix focuses on one series at a time while keeping the filters shared.</p>
+          </div>
+        </div>
+        <div class="matrix-wrap" id="matrixWrap">
+          <div class="placeholder" id="matrixPlaceholder">
+            Load at least one results file and its baseline to render the matrix.
+          </div>
+          <table class="hidden" id="matrixTable">
+            <thead id="matrixHead"></thead>
+            <tbody id="matrixBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel detail-panel">
+        <div class="panel-head">
+          <div>
+            <h2>Selection</h2>
+            <p class="panel-caption" id="detailCaption">Select a matrix cell to inspect that question and resample point across the active comparison series.</p>
+          </div>
+        </div>
+        <div class="placeholder" id="detailPlaceholder">
+          No matrix cell is selected yet. Pick any question/point cell to compare the same selection across open and options series in one view.
+        </div>
+        <div class="selection-shell hidden" id="detailContent">
+          <div class="question-hero" id="selectedQuestionCard"></div>
+          <div class="compare-strip" id="selectedSeriesStrip"></div>
+          <div class="detail-stack" id="detailSeriesStack"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const FILE_SPECS = {
+      openResults: {
+        fetchPath: "../resample_results/open_results.jsonl",
+        repoPath: ["resample_results", "open_results.jsonl"]
+      },
+      openBaseline: {
+        fetchPath: "../baseline/baseline_CoTs_open.jsonl",
+        repoPath: ["baseline", "baseline_CoTs_open.jsonl"]
+      },
+      optionsOriginal: {
+        fetchPath: "../resample_results/options_results.jsonl",
+        repoPath: ["resample_results", "options_results.jsonl"]
+      },
+      optionsRandom: {
+        fetchPath: "../resample_results/options_random_results.jsonl",
+        repoPath: ["resample_results", "options_random_results.jsonl"]
+      },
+      optionsShuffle: {
+        fetchPath: "../resample_results/options_shuffle_results.jsonl",
+        repoPath: ["resample_results", "options_shuffle_results.jsonl"]
+      },
+      optionsBaseline: {
+        fetchPath: "../baseline/baseline_CoTs_options.jsonl",
+        repoPath: ["baseline", "baseline_CoTs_options.jsonl"]
+      }
+    };
+
+    const SERIES_CONFIG = {
+      "open:original": {
+        family: "open",
+        condition: "original",
+        label: "Open free-form",
+        shortLabel: "Open",
+        cssKey: "open-original",
+        color: "#184c55",
+        dasharray: "",
+        textColorClass: "series-open-original"
+      },
+      "options:original": {
+        family: "options",
+        condition: "original",
+        label: "Options original",
+        shortLabel: "Options / Original",
+        cssKey: "options-original",
+        color: "#c65b22",
+        dasharray: "",
+        textColorClass: "series-options-original"
+      },
+      "options:random": {
+        family: "options",
+        condition: "random",
+        label: "Options random",
+        shortLabel: "Options / Random",
+        cssKey: "options-random",
+        color: "#8d7d34",
+        dasharray: "8 6",
+        textColorClass: "series-options-random"
+      },
+      "options:shuffle": {
+        family: "options",
+        condition: "shuffle",
+        label: "Options shuffle",
+        shortLabel: "Options / Shuffle",
+        cssKey: "options-shuffle",
+        color: "#5b5fa8",
+        dasharray: "3 4",
+        textColorClass: "series-options-shuffle"
+      }
+    };
+
+    const OPEN_PROBE_SYSTEM_PROMPT =
+      "You are answering a question using a partial reasoning trace that was already produced for the same question. Do not continue the reasoning trace. Do not start a new chain of thought. Do not output <think> or </think>. Return only a concise final answer in plain text. Do not use multiple-choice option letters.";
+    const OPEN_JUDGE_SYSTEM_PROMPT =
+      "You are a strict grader. Decide whether the model's free-form answer should count as correct for the given question when compared with the gold answer. Accept paraphrases and synonyms that preserve meaning. If the gold answer contains multiple required elements, the model answer must include all essential elements to be correct. Missing required content, contradictory content, or materially different content means INCORRECT. Do not solve the question yourself. Do not explain. Do not think aloud. Output exactly one token: CORRECT or INCORRECT.";
+    const OPTIONS_PROBE_SYSTEM_PROMPT =
+      "You are answering a multiple-choice question with answer choices labelled A through J. You will receive the question and a partial reasoning trace that was already produced for the same question. Do not continue the reasoning trace. Do not start a new chain of thought. Do not output <think> or </think>. Return exactly one uppercase answer letter.";
+
+    function getInitialUrlState() {
+      const params = new URLSearchParams(window.location.search);
+      const compareParam = params.get("compare");
+      const pointParam = params.get("point");
+      const parsedPoint = pointParam === null ? null : Number(pointParam);
+      return {
+        compare: compareParam
+          ? compareParam.split(",").map((value) => value.trim()).filter(Boolean)
+          : [],
+        matrix: params.get("matrix") || null,
+        category: params.get("category") || "all",
+        point: Number.isFinite(parsedPoint) ? parsedPoint : null
+      };
+    }
+
+    const initialUrlState = getInitialUrlState();
+
+    const state = {
+      seriesByKey: {},
+      sharedMetaByQuestionId: new Map(),
+      visibleSeriesKeys: initialUrlState.compare,
+      matrixSeriesKey: initialUrlState.matrix,
+      activeCategory: initialUrlState.category,
+      baselineFilter: "all",
+      rowPatternFilter: "all",
+      sortMode: "question_id",
+      matrixRowLimit: "50",
+      spotlightPoint: initialUrlState.point,
+      searchQuery: "",
+      selectedQuestionId: null,
+      selectedPoint: initialUrlState.point,
+      uploadedTexts: {
+        openResults: null,
+        openBaseline: null,
+        optionsOriginal: null,
+        optionsRandom: null,
+        optionsShuffle: null,
+        optionsBaseline: null
+      },
+      projectDirectoryHandle: null
+    };
+
+    const statusEl = document.getElementById("status");
+    const heroPillsEl = document.getElementById("heroPills");
+    const reloadButtonEl = document.getElementById("reloadButton");
+    const seriesPickerEl = document.getElementById("seriesPicker");
+    const matrixSeriesSelectEl = document.getElementById("matrixSeriesSelect");
+    const categoryFilterSelectEl = document.getElementById("categoryFilterSelect");
+    const baselineFilterSelectEl = document.getElementById("baselineFilterSelect");
+    const rowPatternSelectEl = document.getElementById("rowPatternSelect");
+    const sortModeSelectEl = document.getElementById("sortModeSelect");
+    const matrixRowLimitSelectEl = document.getElementById("matrixRowLimitSelect");
+    const spotlightPointSelectEl = document.getElementById("spotlightPointSelect");
+    const questionSearchInputEl = document.getElementById("questionSearchInput");
+    const excludeAlwaysWrongToggleEl = document.getElementById("excludeAlwaysWrongToggle");
+    const topStatsGridEl = document.getElementById("topStatsGrid");
+    const seriesSummaryGridEl = document.getElementById("seriesSummaryGrid");
+    const chartCaptionEl = document.getElementById("chartCaption");
+    const accuracyChartEl = document.getElementById("accuracyChart");
+    const spotlightGridEl = document.getElementById("spotlightGrid");
+    const matrixCaptionEl = document.getElementById("matrixCaption");
+    const matrixPlaceholderEl = document.getElementById("matrixPlaceholder");
+    const matrixTableEl = document.getElementById("matrixTable");
+    const matrixHeadEl = document.getElementById("matrixHead");
+    const matrixBodyEl = document.getElementById("matrixBody");
+    const detailCaptionEl = document.getElementById("detailCaption");
+    const detailPlaceholderEl = document.getElementById("detailPlaceholder");
+    const detailContentEl = document.getElementById("detailContent");
+    const selectedQuestionCardEl = document.getElementById("selectedQuestionCard");
+    const selectedSeriesStripEl = document.getElementById("selectedSeriesStrip");
+    const detailSeriesStackEl = document.getElementById("detailSeriesStack");
+    const fileInputs = {
+      openResults: document.getElementById("openResultsFile"),
+      openBaseline: document.getElementById("openBaselineFile"),
+      optionsOriginal: document.getElementById("optionsOriginalFile"),
+      optionsRandom: document.getElementById("optionsRandomFile"),
+      optionsShuffle: document.getElementById("optionsShuffleFile"),
+      optionsBaseline: document.getElementById("optionsBaselineFile")
+    };
+
+    function setStatus(message) {
+      statusEl.textContent = message;
+    }
+
+    function createSvgNode(tagName, attributes) {
+      const node = document.createElementNS("http://www.w3.org/2000/svg", tagName);
+      for (const [name, value] of Object.entries(attributes)) {
+        node.setAttribute(name, String(value));
+      }
+      return node;
+    }
+
+    function createTextNode(text) {
+      return document.createTextNode(text);
+    }
+
+    function normaliseCategory(category) {
+      return String(category || "").trim().toLowerCase();
+    }
+
+    function formatCategoryLabel(category) {
+      const value = String(category || "").trim() || "unknown";
+      const normalised = normaliseCategory(value);
+      if (normalised === "all") {
+        return "All Categories";
+      }
+      if (normalised === "unknown") {
+        return "Unknown";
+      }
+      return value
+        .replace(/[_-]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+    }
+
+    function formatPercent(point) {
+      return `${Math.round(point * 100)}%`;
+    }
+
+    function formatRatio(correct, total) {
+      return total ? `${correct}/${total}` : "0/0";
+    }
+
+    function formatMaybePercent(value) {
+      return Number.isFinite(value) ? `${Math.round(value * 100)}%` : "n/a";
+    }
+
+    function normaliseInteger(value) {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) {
+        return null;
+      }
+      return Math.max(0, Math.round(parsed));
+    }
+
+    function hasOwn(object, key) {
+      return Boolean(object) && Object.prototype.hasOwnProperty.call(object, key);
+    }
+
+    function formatOptionalValue(value, fallback = "(none)") {
+      if (value === null || value === undefined || value === "") {
+        return fallback;
+      }
+      return String(value);
+    }
+
+    function escapeSelectorValue(value) {
+      return typeof CSS !== "undefined" && typeof CSS.escape === "function"
+        ? CSS.escape(value)
+        : value.replace(/["\\]/g, "\\$&");
+    }
+
+    function parseJsonl(text) {
+      return text
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line, index) => {
+          try {
+            return JSON.parse(line);
+          } catch (error) {
+            throw new Error(`Invalid JSON on line ${index + 1}: ${error.message}`);
+          }
+        });
+    }
+
+    async function readLocalFile(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
+        reader.readAsText(file);
+      });
+    }
+
+    function isLocalFilePage() {
+      return window.location.protocol === "file:";
+    }
+
+    function supportsDirectoryPicker() {
+      return typeof window.showDirectoryPicker === "function";
+    }
+
+    function createProjectLoadError(message, code) {
+      const error = new Error(message);
+      error.code = code;
+      return error;
+    }
+
+    async function ensureReadPermission(handle) {
+      if (!handle || typeof handle.queryPermission !== "function") {
+        return true;
+      }
+      const permissionOptions = { mode: "read" };
+      if (await handle.queryPermission(permissionOptions) === "granted") {
+        return true;
+      }
+      if (typeof handle.requestPermission !== "function") {
+        return false;
+      }
+      return (await handle.requestPermission(permissionOptions)) === "granted";
+    }
+
+    async function readFileHandleAsText(fileHandle) {
+      const file = await fileHandle.getFile();
+      return readLocalFile(file);
+    }
+
+    async function getProjectFileHandle(directoryHandle, pathSegments) {
+      let currentHandle = directoryHandle;
+      for (let index = 0; index < pathSegments.length - 1; index += 1) {
+        currentHandle = await currentHandle.getDirectoryHandle(pathSegments[index]);
+      }
+      return currentHandle.getFileHandle(pathSegments[pathSegments.length - 1]);
+    }
+
+    async function readProjectFileFromDirectory(directoryHandle, pathSegments) {
+      const repoPath = pathSegments.join("/");
+      try {
+        const fileHandle = await getProjectFileHandle(directoryHandle, pathSegments);
+        return await readFileHandleAsText(fileHandle);
+      } catch (error) {
+        if (error && error.name === "NotFoundError") {
+          throw createProjectLoadError(
+            `Could not find ${repoPath}. Select the repository root folder that contains baseline/ and resample_results/.`,
+            "NotFoundError"
+          );
+        }
+        const message = error && error.message ? error.message : String(error);
+        throw createProjectLoadError(`Could not read ${repoPath}: ${message}`, "ReadError");
+      }
+    }
+
+    async function getProjectDirectoryHandle() {
+      if (state.projectDirectoryHandle) {
+        const hasPermission = await ensureReadPermission(state.projectDirectoryHandle);
+        if (hasPermission) {
+          return state.projectDirectoryHandle;
+        }
+        state.projectDirectoryHandle = null;
+      }
+
+      if (!supportsDirectoryPicker()) {
+        throw createProjectLoadError(
+          "This browser cannot automatically load local project files",
+          "UnsupportedError"
+        );
+      }
+
+      setStatus("Select the repository root folder so the dashboard can read baseline/ and resample_results/.");
+      const directoryHandle = await window.showDirectoryPicker({ mode: "read" });
+      const hasPermission = await ensureReadPermission(directoryHandle);
+      if (!hasPermission) {
+        throw createProjectLoadError("Read access to the repository folder was not granted", "PermissionError");
+      }
+      state.projectDirectoryHandle = directoryHandle;
+      return directoryHandle;
+    }
+
+    function describeAutoLoadFailure(error) {
+      if (error && error.name === "AbortError") {
+        return "Folder selection was cancelled";
+      }
+      if (error && error.message) {
+        return error.message;
+      }
+      return String(error);
+    }
+
+    async function fetchText(path) {
+      const response = await fetch(path, { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status} while loading ${path}`);
+      }
+      return response.text();
+    }
+
+    function extractReasoningTrace(response) {
+      if (typeof response !== "string" || !response) {
+        return "";
+      }
+
+      const closedMatch = response.match(/<think>\s*([\s\S]*?)\s*<\/think>/);
+      if (closedMatch) {
+        return closedMatch[1].trim();
+      }
+
+      const start = response.indexOf("<think>");
+      if (start === -1) {
+        return "";
+      }
+
+      return response.slice(start + "<think>".length).trim();
+    }
+
+    function approximateReasoningPrefix(reasoningTrace, resampleTokens, totalTokens) {
+      if (!reasoningTrace) {
+        return "[missing reasoning trace in baseline row]";
+      }
+      const injectedTokens = normaliseInteger(resampleTokens);
+      const traceTokens = normaliseInteger(totalTokens);
+
+      if (injectedTokens === 0) {
+        return "[empty partial reasoning trace]";
+      }
+      if (injectedTokens === null || !traceTokens) {
+        return reasoningTrace;
+      }
+      if (injectedTokens >= traceTokens) {
+        return reasoningTrace;
+      }
+
+      const ratio = injectedTokens / traceTokens;
+      const approxChars = Math.max(1, Math.floor(reasoningTrace.length * ratio));
+      return `${reasoningTrace.slice(0, approxChars)}\n\n[approximate character preview only; the experiment truncates by Qwen token count]`;
+    }
+
+    function buildOpenProbePreview(cell) {
+      const hasExactPrefix = typeof cell.injectedPrefixText === "string";
+      const injectedPrefix = hasExactPrefix
+        ? cell.injectedPrefixText
+        : approximateReasoningPrefix(cell.reasoningTrace, cell.resampleTokens, cell.reasoningTokenCount);
+
+      return [
+        hasExactPrefix
+          ? "[Preview of the first probe attempt using the exact injected prefix stored in the JSONL row.]"
+          : "[Preview of the first probe attempt using an approximate browser-side reconstruction of the injected prefix.]",
+        "",
+        "System:",
+        OPEN_PROBE_SYSTEM_PROMPT,
+        "",
+        "User:",
+        "/no_think",
+        `Question:\n${cell.question || "(missing question text)"}`,
+        "",
+        "Partial reasoning trace already produced for this same question:",
+        "```text",
+        hasExactPrefix ? (injectedPrefix || "[empty partial reasoning trace]") : injectedPrefix,
+        "```",
+        "",
+        "Do not continue or rewrite that trace. Based on the question and the partial trace above, return only the final answer in plain text.",
+        "",
+        "Final answer:"
+      ].join("\n");
+    }
+
+    function buildOptionsProbePreview(cell) {
+      const hasExactPrefix = typeof cell.injectedPrefixText === "string";
+      const injectedPrefix = hasExactPrefix
+        ? cell.injectedPrefixText
+        : approximateReasoningPrefix(cell.reasoningTrace, cell.resampleTokens, cell.reasoningTokenCount);
+
+      return [
+        `[Condition: ${SERIES_CONFIG[cell.seriesKey].label}]`,
+        hasExactPrefix
+          ? "[Preview of the first probe attempt using the exact injected prefix stored in the JSONL row.]"
+          : "[Preview of the first probe attempt using an approximate browser-side reconstruction of the injected prefix.]",
+        "",
+        "System:",
+        OPTIONS_PROBE_SYSTEM_PROMPT,
+        "",
+        "User:",
+        "/no_think",
+        `Question:\n${cell.prompt || cell.question || "(missing prompt)"}`,
+        "",
+        "Partial reasoning trace already produced for this same question:",
+        "```text",
+        hasExactPrefix ? (injectedPrefix || "[empty partial reasoning trace]") : injectedPrefix,
+        "```",
+        "",
+        "Do not continue or rewrite that trace. Based on the question and the partial trace above, return exactly one uppercase answer letter from A to J.",
+        "",
+        "Answer:"
+      ].join("\n");
+    }
+
+    function buildOpenJudgePreview(cell) {
+      const judgeWasUsed = cell.usedLlmJudge === true;
+      if (!judgeWasUsed) {
+        return "LLM judge was not used for this point. The verdict came from direct matching.";
+      }
+
+      const retryUsed = Number(cell.judgeAttemptCount || 0) > 1;
+      const parts = [
+        retryUsed
+          ? "[Preview of the retry judge call that included full model-response context.]"
+          : "[Preview of the first judge call.]",
+        "",
+        "System:",
+        retryUsed
+          ? `${OPEN_JUDGE_SYSTEM_PROMPT} On this retry, you may use the full response tail as supporting context. Still output exactly one token and nothing else.`
+          : OPEN_JUDGE_SYSTEM_PROMPT,
+        "",
+        "User:",
+        "/no_think",
+        `Question: ${cell.question || "(missing question text)"}`,
+        `Candidate answer: ${cell.parsedAnswer || "[empty]"}`,
+        `Gold answer: ${cell.actualAnswer || "[missing gold answer]"}`
+      ];
+
+      if (retryUsed) {
+        parts.push("", "Full model response for context:", cell.rawProbeResponse || cell.response || "(empty)");
+      }
+
+      parts.push("", "Verdict:", "Return only CORRECT or INCORRECT.");
+      return parts.join("\n");
+    }
+
+    function buildOptionsJudgePreview(cell) {
+      return "The options pipeline already stores the judge/output fields directly. No separate browser-side reconstruction is needed here.";
+    }
+
+    function finaliseSeries(series) {
+      for (const row of series.rows) {
+        row.cellByPoint = new Map(
+          row.cells
+            .filter((cell) => !cell.missing)
+            .map((cell) => [cell.point, cell])
+        );
+      }
+      series.rowByQuestionId = new Map(series.rows.map((row) => [row.questionId, row]));
+      return series;
+    }
+
+    function buildOpenSeries(resultsRows, baselineRows) {
+      const seriesKey = "open:original";
+      const baselineById = new Map(baselineRows.map((row) => [row.question_id, row]));
+      const resamplePoints = Array.from(
+        new Set(
+          resultsRows.flatMap((row) =>
+            (row.resample_results || []).map((result) => Number(result.resample_point))
+          )
+        )
+      ).sort((a, b) => a - b);
+
+      const rows = [...resultsRows]
+        .sort((a, b) => a.question_id - b.question_id)
+        .map((row) => {
+          const baseline = baselineById.get(row.question_id) || null;
+          const baselineResponse = baseline && typeof baseline.response === "string" ? baseline.response : "";
+          const question = baseline && typeof baseline.question === "string"
+            ? baseline.question
+            : (typeof row.question === "string" ? row.question : "");
+          const category = baseline && typeof baseline.category === "string"
+            ? baseline.category
+            : (typeof row.category === "string" ? row.category : "");
+          const reasoningTrace = baseline && typeof baseline.reasoning_trace === "string"
+            ? baseline.reasoning_trace
+            : extractReasoningTrace(baselineResponse);
+          const reasoningTokenCount = normaliseInteger(
+            row.reasoning_token_count ?? (baseline ? baseline.reasoning_token_count : null)
+          );
+          const baselineLength = baselineResponse.length;
+          const resultByPoint = new Map(
+            (row.resample_results || []).map((result) => [Number(result.resample_point), result])
+          );
+
+          const cells = resamplePoints.map((point) => {
+            const result = resultByPoint.get(point);
+            if (!result) {
+              return {
+                key: `${seriesKey}:${row.question_id}:${point}`,
+                seriesKey,
+                questionId: row.question_id,
+                point,
+                missing: true
+              };
+            }
+
+            const cell = {
+              key: `${seriesKey}:${row.question_id}:${point}`,
+              seriesKey,
+              family: "open",
+              condition: "original",
+              questionId: row.question_id,
+              question,
+              prompt: question,
+              category: category || "unknown",
+              point,
+              response: hasOwn(result, "response") ? result.response : "",
+              rawProbeResponse: hasOwn(result, "raw_probe_response") ? result.raw_probe_response : "",
+              parsedAnswer: hasOwn(result, "answer_candidate") ? result.answer_candidate : "",
+              answer: hasOwn(result, "answer_candidate") ? result.answer_candidate : "",
+              judgeResponse: hasOwn(result, "judge_response") ? result.judge_response : "",
+              verdict: hasOwn(result, "verdict") ? result.verdict : "",
+              verdictSource: hasOwn(result, "verdict_source") ? result.verdict_source : "",
+              directVerdict: hasOwn(result, "direct_verdict") ? result.direct_verdict : null,
+              judgeVerdict: hasOwn(result, "judge_verdict") ? result.judge_verdict : null,
+              usedLlmJudge: hasOwn(result, "used_llm_judge") ? result.used_llm_judge : null,
+              judgeAttemptCount: hasOwn(result, "judge_attempt_count") ? result.judge_attempt_count : null,
+              judgeFinishReason: hasOwn(result, "judge_finish_reason") ? result.judge_finish_reason : null,
+              actualAnswer: hasOwn(result, "actual_answer") ? result.actual_answer : "",
+              actualAnswerLabel: hasOwn(result, "actual_answer_label") ? result.actual_answer_label : "",
+              correct: Boolean(result.correct),
+              resampleTokens: normaliseInteger(result.resample_tokens),
+              reasoningTokenCount,
+              reasoningTrace,
+              injectedPrefixText: typeof result.injected_prefix_text === "string" ? result.injected_prefix_text : null,
+              missing: false
+            };
+            cell.answerSummary = cell.parsedAnswer || cell.response || "(empty)";
+            cell.userMessage = buildOpenProbePreview(cell);
+            cell.judgePreview = buildOpenJudgePreview(cell);
+            cell.truncatedLength = cell.resampleTokens ?? Math.floor(baselineLength * point);
+            return cell;
+          });
+
+          return {
+            seriesKey,
+            family: "open",
+            condition: "original",
+            questionId: row.question_id,
+            question,
+            prompt: question,
+            category: category || "unknown",
+            baselineCorrect: baseline && typeof baseline.correct === "boolean" ? baseline.correct : null,
+            reasoningTokenCount,
+            cells
+          };
+        });
+
+      return finaliseSeries({
+        key: seriesKey,
+        ...SERIES_CONFIG[seriesKey],
+        rows,
+        resamplePoints
+      });
+    }
+
+    function buildOptionsSeries(resultsRows, baselineRows, condition) {
+      const seriesKey = `options:${condition}`;
+      const baselineById = new Map(baselineRows.map((row) => [row.question_id, row]));
+      const resamplePoints = Array.from(
+        new Set(
+          resultsRows.flatMap((row) =>
+            (row.resample_results || []).map((result) => Number(result.resample_point))
+          )
+        )
+      ).sort((a, b) => a - b);
+
+      const rows = [...resultsRows]
+        .sort((a, b) => a.question_id - b.question_id)
+        .map((row) => {
+          const baseline = baselineById.get(row.question_id) || null;
+          const prompt = typeof row.prompt === "string"
+            ? row.prompt
+            : (baseline && typeof baseline.prompt === "string" ? baseline.prompt : "");
+          const question = typeof row.question === "string"
+            ? row.question
+            : (baseline && typeof baseline.question === "string" ? baseline.question : "");
+          const category = typeof row.category === "string"
+            ? row.category
+            : (baseline && typeof baseline.category === "string" ? baseline.category : "");
+          const reasoningTrace = baseline && typeof baseline.reasoning_trace === "string"
+            ? baseline.reasoning_trace
+            : "";
+          const reasoningTokenCount = normaliseInteger(
+            row.reasoning_token_count ?? (baseline ? baseline.reasoning_token_count : null)
+          );
+          const resultByPoint = new Map(
+            (row.resample_results || []).map((result) => [Number(result.resample_point), result])
+          );
+
+          const cells = resamplePoints.map((point) => {
+            const result = resultByPoint.get(point);
+            if (!result) {
+              return {
+                key: `${seriesKey}:${row.question_id}:${point}`,
+                seriesKey,
+                questionId: row.question_id,
+                point,
+                missing: true
+              };
+            }
+
+            const cell = {
+              key: `${seriesKey}:${row.question_id}:${point}`,
+              seriesKey,
+              family: "options",
+              condition,
+              questionId: row.question_id,
+              question,
+              prompt,
+              category: category || "unknown",
+              point,
+              response: hasOwn(result, "response") ? result.response : "",
+              rawProbeResponse: hasOwn(result, "raw_probe_response") ? result.raw_probe_response : "",
+              parsedAnswer: hasOwn(result, "parsed_answer") ? result.parsed_answer : "",
+              answer: hasOwn(result, "answer") ? result.answer : "",
+              judgeResponse: hasOwn(result, "judge_response") ? result.judge_response : "",
+              verdict: "",
+              verdictSource: hasOwn(result, "answer_source") ? result.answer_source : "",
+              directVerdict: null,
+              judgeVerdict: null,
+              usedLlmJudge: hasOwn(result, "used_llm_judge") ? result.used_llm_judge : null,
+              judgeAttemptCount: null,
+              judgeFinishReason: null,
+              actualAnswer: hasOwn(result, "actual_answer") ? result.actual_answer : "",
+              actualAnswerLabel: "",
+              correct: Boolean(result.correct),
+              resampleTokens: normaliseInteger(result.resample_tokens),
+              reasoningTokenCount,
+              reasoningTrace,
+              injectedPrefixText: typeof result.injected_prefix_text === "string" ? result.injected_prefix_text : null,
+              missing: false
+            };
+            cell.answerSummary = cell.parsedAnswer || cell.answer || cell.response || "(empty)";
+            cell.userMessage = buildOptionsProbePreview(cell);
+            cell.judgePreview = buildOptionsJudgePreview(cell);
+            return cell;
+          });
+
+          return {
+            seriesKey,
+            family: "options",
+            condition,
+            questionId: row.question_id,
+            question,
+            prompt,
+            category: category || "unknown",
+            baselineCorrect: baseline && typeof baseline.correct === "boolean" ? baseline.correct : null,
+            reasoningTokenCount,
+            cells
+          };
+        });
+
+      return finaliseSeries({
+        key: seriesKey,
+        ...SERIES_CONFIG[seriesKey],
+        rows,
+        resamplePoints
+      });
+    }
+
+    function buildSharedMetaByQuestionId(seriesByKey) {
+      const metaByQuestionId = new Map();
+
+      for (const series of Object.values(seriesByKey)) {
+        for (const row of series.rows) {
+          const existing = metaByQuestionId.get(row.questionId) || {
+            category: "",
+            question: "",
+            prompt: ""
+          };
+          if ((!existing.category || normaliseCategory(existing.category) === "unknown")
+            && row.category && normaliseCategory(row.category) !== "unknown") {
+            existing.category = row.category;
+          }
+          if (!existing.question && row.question) {
+            existing.question = row.question;
+          }
+          if (!existing.prompt && row.prompt) {
+            existing.prompt = row.prompt;
+          }
+          metaByQuestionId.set(row.questionId, existing);
+        }
+      }
+
+      return metaByQuestionId;
+    }
+
+    function enrichSeriesWithSharedMeta(seriesByKey, sharedMetaByQuestionId) {
+      for (const series of Object.values(seriesByKey)) {
+        for (const row of series.rows) {
+          const shared = sharedMetaByQuestionId.get(row.questionId);
+          if (!shared) {
+            continue;
+          }
+          if ((!row.category || normaliseCategory(row.category) === "unknown") && shared.category) {
+            row.category = shared.category;
+          }
+          if (!row.question && shared.question) {
+            row.question = shared.question;
+          }
+          if (!row.prompt && shared.prompt) {
+            row.prompt = shared.prompt;
+          }
+          for (const cell of row.cells) {
+            if (!cell || cell.missing) {
+              continue;
+            }
+            if ((!cell.category || normaliseCategory(cell.category) === "unknown") && shared.category) {
+              cell.category = shared.category;
+            }
+            if (!cell.question && shared.question) {
+              cell.question = shared.question;
+            }
+            if (!cell.prompt && shared.prompt) {
+              cell.prompt = shared.prompt;
+            }
+            if (series.family === "open") {
+              cell.userMessage = buildOpenProbePreview(cell);
+            } else {
+              cell.userMessage = buildOptionsProbePreview(cell);
+            }
+          }
+        }
+        finaliseSeries(series);
+      }
+    }
+
+    function getLoadedSeriesKeys() {
+      return Object.keys(SERIES_CONFIG).filter((key) => {
+        const series = state.seriesByKey[key];
+        return Boolean(series) && series.rows.length > 0;
+      });
+    }
+
+    function getVisibleSeriesKeys() {
+      const loaded = getLoadedSeriesKeys();
+      const visible = state.visibleSeriesKeys.filter((key) => loaded.includes(key));
+      return visible.length ? visible : loaded.slice(0, Math.min(loaded.length, 4));
+    }
+
+    function getMatrixSeries() {
+      const loaded = getLoadedSeriesKeys();
+      if (!loaded.length) {
+        return null;
+      }
+      if (!loaded.includes(state.matrixSeriesKey)) {
+        state.matrixSeriesKey = loaded[0];
+      }
+      return state.seriesByKey[state.matrixSeriesKey];
+    }
+
+    function getAvailableCategories() {
+      const categories = new Set();
+      for (const seriesKey of getLoadedSeriesKeys()) {
+        for (const row of state.seriesByKey[seriesKey].rows) {
+          categories.add(row.category || "unknown");
+        }
+      }
+      return Array.from(categories).sort((left, right) => {
+        const leftNormalised = normaliseCategory(left);
+        const rightNormalised = normaliseCategory(right);
+        if (leftNormalised === rightNormalised) {
+          return 0;
+        }
+        if (leftNormalised === "unknown") {
+          return 1;
+        }
+        if (rightNormalised === "unknown") {
+          return -1;
+        }
+        return left.localeCompare(right);
+      });
+    }
+
+    function getAvailablePoints(seriesKeys) {
+      return Array.from(
+        new Set(
+          seriesKeys.flatMap((seriesKey) => {
+            const series = state.seriesByKey[seriesKey];
+            return series ? series.resamplePoints : [];
+          })
+        )
+      ).sort((a, b) => a - b);
+    }
+
+    function getSeriesColor(seriesKey) {
+      return SERIES_CONFIG[seriesKey].color;
+    }
+
+    function getSeriesDasharray(seriesKey) {
+      return SERIES_CONFIG[seriesKey].dasharray;
+    }
+
+    function getSeriesCssClass(seriesKey) {
+      return `series-${SERIES_CONFIG[seriesKey].cssKey}`;
+    }
+
+    function renderHeroPills() {
+      heroPillsEl.replaceChildren();
+      const loaded = getLoadedSeriesKeys();
+      const visible = getVisibleSeriesKeys();
+      const pills = [
+        { label: "Loaded", value: `${loaded.length} series` },
+        { label: "Comparing", value: `${visible.length} series` },
+        { label: "Matrix", value: getMatrixSeries() ? SERIES_CONFIG[state.matrixSeriesKey].shortLabel : "No focus" }
+      ];
+      for (const item of pills) {
+        const pill = document.createElement("div");
+        pill.className = "hero-pill";
+        const strong = document.createElement("strong");
+        strong.textContent = item.label;
+        pill.append(strong, createTextNode(` ${item.value}`));
+        heroPillsEl.append(pill);
+      }
+    }
+
+    function renderSeriesPicker() {
+      seriesPickerEl.replaceChildren();
+      const loaded = getLoadedSeriesKeys();
+      const visible = new Set(getVisibleSeriesKeys());
+
+      for (const [seriesKey, config] of Object.entries(SERIES_CONFIG)) {
+        const series = state.seriesByKey[seriesKey];
+        const label = document.createElement("label");
+        label.className = `series-chip ${getSeriesCssClass(seriesKey)}`;
+        if (!loaded.includes(seriesKey)) {
+          label.classList.add("disabled");
+        }
+        if (visible.has(seriesKey)) {
+          label.classList.add("active");
+        }
+
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.checked = visible.has(seriesKey);
+        input.disabled = !loaded.includes(seriesKey);
+        input.addEventListener("change", () => {
+          const currentlyVisible = new Set(getVisibleSeriesKeys());
+          if (input.checked) {
+            currentlyVisible.add(seriesKey);
+          } else {
+            currentlyVisible.delete(seriesKey);
+          }
+          if (!currentlyVisible.size) {
+            input.checked = true;
+            return;
+          }
+          state.visibleSeriesKeys = Array.from(currentlyVisible);
+          renderAll();
+        });
+
+        const title = document.createElement("strong");
+        title.textContent = config.label;
+
+        const meta = document.createElement("span");
+        meta.textContent = loaded.includes(seriesKey)
+          ? `${series.rows.length} questions · ${series.resamplePoints.length} points`
+          : "Not loaded";
+
+        label.append(input, title, meta);
+        seriesPickerEl.append(label);
+      }
+    }
+
+    function syncMatrixSeriesSelect() {
+      const loaded = getLoadedSeriesKeys();
+      if (!loaded.length) {
+        matrixSeriesSelectEl.replaceChildren();
+        matrixSeriesSelectEl.disabled = true;
+        state.matrixSeriesKey = null;
+        return;
+      }
+
+      if (!loaded.includes(state.matrixSeriesKey)) {
+        state.matrixSeriesKey = initialUrlState.matrix && loaded.includes(initialUrlState.matrix)
+          ? initialUrlState.matrix
+          : (getVisibleSeriesKeys()[0] || loaded[0]);
+      }
+
+      matrixSeriesSelectEl.replaceChildren();
+      for (const seriesKey of loaded) {
+        const option = document.createElement("option");
+        option.value = seriesKey;
+        option.textContent = SERIES_CONFIG[seriesKey].label;
+        option.selected = seriesKey === state.matrixSeriesKey;
+        matrixSeriesSelectEl.append(option);
+      }
+      matrixSeriesSelectEl.disabled = loaded.length <= 1;
+    }
+
+    function syncCategorySelect() {
+      const categories = getAvailableCategories();
+      const hasCurrentCategory = categories.some(
+        (category) => normaliseCategory(category) === normaliseCategory(state.activeCategory)
+      );
+      if (normaliseCategory(state.activeCategory) !== "all" && !hasCurrentCategory) {
+        state.activeCategory = "all";
+      }
+
+      categoryFilterSelectEl.replaceChildren();
+      const allOption = document.createElement("option");
+      allOption.value = "all";
+      allOption.textContent = "All Categories";
+      categoryFilterSelectEl.append(allOption);
+
+      for (const category of categories) {
+        const option = document.createElement("option");
+        option.value = category;
+        option.textContent = formatCategoryLabel(category);
+        categoryFilterSelectEl.append(option);
+      }
+      categoryFilterSelectEl.value = state.activeCategory;
+      categoryFilterSelectEl.disabled = categories.length <= 1;
+    }
+
+    function syncSpotlightPointSelect() {
+      const sourceKeys = getVisibleSeriesKeys().length
+        ? getVisibleSeriesKeys()
+        : getLoadedSeriesKeys();
+      const points = getAvailablePoints(sourceKeys);
+      spotlightPointSelectEl.replaceChildren();
+
+      if (!points.length) {
+        state.spotlightPoint = null;
+        spotlightPointSelectEl.disabled = true;
+        return;
+      }
+
+      if (!points.includes(state.spotlightPoint)) {
+        state.spotlightPoint = points.includes(1) ? 1 : points[0];
+      }
+
+      for (const point of points) {
+        const option = document.createElement("option");
+        option.value = String(point);
+        option.textContent = formatPercent(point);
+        option.selected = point === state.spotlightPoint;
+        spotlightPointSelectEl.append(option);
+      }
+
+      spotlightPointSelectEl.disabled = points.length <= 1;
+    }
+
+    function rowMatchesSearch(row) {
+      const query = state.searchQuery.trim().toLowerCase();
+      if (!query) {
+        return true;
+      }
+      const haystack = [
+        String(row.questionId),
+        row.category || "",
+        row.question || "",
+        row.prompt || ""
+      ].join("\n").toLowerCase();
+      return haystack.includes(query);
+    }
+
+    function rowMatchesBaselineFilter(row) {
+      if (state.baselineFilter === "all") {
+        return true;
+      }
+      if (state.baselineFilter === "correct") {
+        return row.baselineCorrect === true;
+      }
+      if (state.baselineFilter === "incorrect") {
+        return row.baselineCorrect === false;
+      }
+      if (state.baselineFilter === "unknown") {
+        return row.baselineCorrect === null;
+      }
+      return true;
+    }
+
+    function getRowStats(row) {
+      const availableCells = row.cells.filter((cell) => !cell.missing);
+      const correctCells = availableCells.filter((cell) => cell.correct);
+      return {
+        total: availableCells.length,
+        correct: correctCells.length,
+        accuracy: availableCells.length ? correctCells.length / availableCells.length : 0
+      };
+    }
+
+    function rowMatchesTrajectory(row) {
+      const availableCells = row.cells.filter((cell) => !cell.missing);
+      const correctCount = availableCells.filter((cell) => cell.correct).length;
+      switch (state.rowPatternFilter) {
+        case "any_correct":
+          return correctCount > 0;
+        case "always_wrong":
+          return availableCells.length > 0 && correctCount === 0;
+        case "always_correct":
+          return availableCells.length > 0 && correctCount === availableCells.length;
+        case "mixed":
+          return correctCount > 0 && correctCount < availableCells.length;
+        default:
+          return true;
+      }
+    }
+
+    function getFilteredRows(series) {
+      if (!series) {
+        return [];
+      }
+      return series.rows.filter((row) => {
+        const categoryMatches = normaliseCategory(state.activeCategory) === "all"
+          || normaliseCategory(row.category) === normaliseCategory(state.activeCategory);
+        return categoryMatches
+          && rowMatchesBaselineFilter(row)
+          && rowMatchesTrajectory(row)
+          && rowMatchesSearch(row);
+      });
+    }
+
+    function getSpotlightCell(row) {
+      return row.cellByPoint.get(state.spotlightPoint) || null;
+    }
+
+    function sortRows(rows) {
+      const sorted = [...rows];
+      sorted.sort((left, right) => {
+        if (state.sortMode === "category") {
+          const categoryCompare = formatCategoryLabel(left.category).localeCompare(formatCategoryLabel(right.category));
+          if (categoryCompare !== 0) {
+            return categoryCompare;
+          }
+          return left.questionId - right.questionId;
+        }
+
+        if (state.sortMode === "accuracy_desc") {
+          const accuracyCompare = getRowStats(right).accuracy - getRowStats(left).accuracy;
+          if (accuracyCompare !== 0) {
+            return accuracyCompare;
+          }
+          return left.questionId - right.questionId;
+        }
+
+        if (state.sortMode === "spotlight") {
+          const leftCell = getSpotlightCell(left);
+          const rightCell = getSpotlightCell(right);
+          const leftScore = !leftCell ? -1 : (leftCell.correct ? 2 : 1);
+          const rightScore = !rightCell ? -1 : (rightCell.correct ? 2 : 1);
+          if (rightScore !== leftScore) {
+            return rightScore - leftScore;
+          }
+          const accuracyCompare = getRowStats(right).accuracy - getRowStats(left).accuracy;
+          if (accuracyCompare !== 0) {
+            return accuracyCompare;
+          }
+        }
+
+        return left.questionId - right.questionId;
+      });
+      return sorted;
+    }
+
+    function getMatrixRows(series) {
+      const sorted = sortRows(getFilteredRows(series));
+      if (state.matrixRowLimit === "all") {
+        return sorted;
+      }
+      const limit = Number(state.matrixRowLimit);
+      return Number.isFinite(limit) ? sorted.slice(0, limit) : sorted;
+    }
+
+    function getPointAccuracyStats(rows, resamplePoints) {
+      return resamplePoints.map((point) => {
+        const pointCells = rows
+          .flatMap((row) => row.cells)
+          .filter((cell) => !cell.missing && cell.point === point);
+        const correct = pointCells.filter((cell) => cell.correct).length;
+        return {
+          point,
+          total: pointCells.length,
+          correct,
+          accuracy: pointCells.length ? correct / pointCells.length : 0
+        };
+      });
+    }
+
+    function getSeriesSummaries() {
+      const visible = getVisibleSeriesKeys();
+      return visible.map((seriesKey) => {
+        const series = state.seriesByKey[seriesKey];
+        const filteredRows = getFilteredRows(series);
+        const chartRows = excludeAlwaysWrongToggleEl.checked
+          ? filteredRows.filter((row) => {
+              const availableCells = row.cells.filter((cell) => !cell.missing);
+              return !(availableCells.length > 0 && availableCells.every((cell) => !cell.correct));
+            })
+          : filteredRows;
+        const pointStats = getPointAccuracyStats(chartRows, series.resamplePoints);
+        const totalCells = filteredRows.reduce((sum, row) => sum + getRowStats(row).total, 0);
+        const totalCorrect = filteredRows.reduce((sum, row) => sum + getRowStats(row).correct, 0);
+        const spotlight = pointStats.find((item) => item.point === state.spotlightPoint) || null;
+        const bestPoint = pointStats.length
+          ? pointStats.reduce((best, current) => current.accuracy > best.accuracy ? current : best)
+          : null;
+        return {
+          key: seriesKey,
+          series,
+          filteredRows,
+          chartRows,
+          pointStats,
+          totalCells,
+          totalCorrect,
+          overallAccuracy: totalCells ? totalCorrect / totalCells : 0,
+          spotlight,
+          bestPoint,
+          excludedAlwaysWrong: filteredRows.length - chartRows.length
+        };
+      });
+    }
+
+    function getSharedQuestionCount(seriesSummaries) {
+      if (!seriesSummaries.length) {
+        return 0;
+      }
+      const sets = seriesSummaries.map((summary) => new Set(summary.filteredRows.map((row) => row.questionId)));
+      const [first, ...rest] = sets;
+      let count = 0;
+      for (const questionId of first) {
+        if (rest.every((set) => set.has(questionId))) {
+          count += 1;
+        }
+      }
+      return count;
+    }
+
+    function renderTopStats(seriesSummaries) {
+      topStatsGridEl.replaceChildren();
+
+      const matrixSeries = getMatrixSeries();
+      const matrixRows = matrixSeries ? getFilteredRows(matrixSeries) : [];
+      const topStats = [
+        {
+          label: "Loaded Series",
+          value: String(getLoadedSeriesKeys().length)
+        },
+        {
+          label: "Comparing",
+          value: String(seriesSummaries.length)
+        },
+        {
+          label: "Matrix Questions",
+          value: String(matrixRows.length)
+        },
+        {
+          label: "Shared Questions",
+          value: String(getSharedQuestionCount(seriesSummaries))
+        },
+        {
+          label: "Category",
+          value: formatCategoryLabel(state.activeCategory)
+        },
+        {
+          label: "Spotlight",
+          value: state.spotlightPoint === null ? "n/a" : formatPercent(state.spotlightPoint)
+        }
+      ];
+
+      for (const item of topStats) {
+        const card = document.createElement("div");
+        card.className = "summary-card";
+        const strong = document.createElement("strong");
+        strong.textContent = item.label;
+        const span = document.createElement("span");
+        span.textContent = item.value;
+        card.append(strong, span);
+        topStatsGridEl.append(card);
+      }
+    }
+
+    function renderSeriesSummaries(seriesSummaries) {
+      seriesSummaryGridEl.replaceChildren();
+
+      if (!seriesSummaries.length) {
+        const placeholder = document.createElement("div");
+        placeholder.className = "placeholder";
+        placeholder.textContent = "Select at least one loaded series to populate the comparison cards.";
+        seriesSummaryGridEl.append(placeholder);
+        return;
+      }
+
+      for (const summary of seriesSummaries) {
+        const card = document.createElement("article");
+        card.className = `series-summary-card ${getSeriesCssClass(summary.key)}`;
+
+        const header = document.createElement("header");
+        const title = document.createElement("strong");
+        title.textContent = summary.series.label;
+        const tag = document.createElement("span");
+        tag.className = "series-tag";
+        tag.textContent = summary.series.family;
+        header.append(title, tag);
+
+        const statsGrid = document.createElement("div");
+        statsGrid.className = "series-stats";
+        const statItems = [
+          { label: "Shown Questions", value: String(summary.filteredRows.length) },
+          { label: "Overall Accuracy", value: formatMaybePercent(summary.overallAccuracy) },
+          {
+            label: "Spotlight",
+            value: summary.spotlight
+              ? `${formatMaybePercent(summary.spotlight.accuracy)} (${formatRatio(summary.spotlight.correct, summary.spotlight.total)})`
+              : "n/a"
+          },
+          {
+            label: "Best Point",
+            value: summary.bestPoint
+              ? `${formatPercent(summary.bestPoint.point)} · ${formatMaybePercent(summary.bestPoint.accuracy)}`
+              : "n/a"
+          }
+        ];
+
+        for (const item of statItems) {
+          const stat = document.createElement("div");
+          stat.className = "series-stat";
+          const strong = document.createElement("strong");
+          strong.textContent = item.label;
+          const span = document.createElement("span");
+          span.textContent = item.value;
+          stat.append(strong, span);
+          statsGrid.append(stat);
+        }
+
+        const note = document.createElement("small");
+        note.textContent = excludeAlwaysWrongToggleEl.checked && summary.excludedAlwaysWrong
+          ? `${summary.excludedAlwaysWrong} always-wrong questions removed from chart only.`
+          : `${summary.totalCells} visible cells across the filtered rows.`;
+
+        card.append(header, statsGrid, note);
+        seriesSummaryGridEl.append(card);
+      }
+    }
+
+    function renderChart(seriesSummaries) {
+      accuracyChartEl.replaceChildren();
+      spotlightGridEl.replaceChildren();
+
+      if (!seriesSummaries.length) {
+        chartCaptionEl.textContent = "Load data to compare accuracy trajectories by resample point.";
+        accuracyChartEl.append(
+          createSvgNode("text", {
+            x: 440,
+            y: 152,
+            "text-anchor": "middle",
+            class: "chart-empty"
+          })
+        );
+        accuracyChartEl.lastChild.textContent = "No series selected";
+        return;
+      }
+
+      const unionPoints = getAvailablePoints(seriesSummaries.map((summary) => summary.key));
+      const visibleSeries = seriesSummaries.filter((summary) => summary.pointStats.length > 0);
+      if (!visibleSeries.length || !unionPoints.length) {
+        chartCaptionEl.textContent = "The current filters removed all chart data.";
+        accuracyChartEl.append(
+          createSvgNode("text", {
+            x: 440,
+            y: 152,
+            "text-anchor": "middle",
+            class: "chart-empty"
+          })
+        );
+        accuracyChartEl.lastChild.textContent = "No chart data";
+        return;
+      }
+
+      chartCaptionEl.textContent = visibleSeries
+        .map((summary) => {
+          const spotlight = summary.spotlight
+            ? `${formatMaybePercent(summary.spotlight.accuracy)} at ${formatPercent(summary.spotlight.point)}`
+            : "n/a";
+          return `${summary.series.shortLabel}: ${spotlight}`;
+        })
+        .join(" | ");
+
+      const width = 880;
+      const height = 300;
+      const padding = { top: 18, right: 20, bottom: 46, left: 54 };
+      const plotWidth = width - padding.left - padding.right;
+      const plotHeight = height - padding.top - padding.bottom;
+      const minX = padding.left;
+      const maxX = padding.left + plotWidth;
+      const maxY = padding.top + plotHeight;
+
+      const xForIndex = (index) => {
+        if (unionPoints.length === 1) {
+          return minX + plotWidth / 2;
+        }
+        return minX + (index / (unionPoints.length - 1)) * plotWidth;
+      };
+      const yForAccuracy = (accuracy) => maxY - (accuracy * plotHeight);
+
+      for (const ratio of [0, 0.25, 0.5, 0.75, 1]) {
+        const y = yForAccuracy(ratio);
+        accuracyChartEl.append(
+          createSvgNode("line", {
+            x1: minX,
+            y1: y,
+            x2: maxX,
+            y2: y,
+            class: "chart-grid-line"
+          })
+        );
+        const label = createSvgNode("text", {
+          x: padding.left - 8,
+          y: y + 4,
+          "text-anchor": "end",
+          class: "chart-axis-label"
+        });
+        label.textContent = `${Math.round(ratio * 100)}%`;
+        accuracyChartEl.append(label);
+      }
+
+      accuracyChartEl.append(
+        createSvgNode("line", {
+          x1: minX,
+          y1: maxY,
+          x2: maxX,
+          y2: maxY,
+          class: "chart-baseline"
+        })
+      );
+
+      for (const [index, point] of unionPoints.entries()) {
+        const label = createSvgNode("text", {
+          x: xForIndex(index),
+          y: height - 16,
+          "text-anchor": "middle",
+          class: "chart-axis-label"
+        });
+        label.textContent = formatPercent(point);
+        accuracyChartEl.append(label);
+      }
+
+      const showPointLabels = visibleSeries.length <= 2;
+      const yOffsets = [-12, 18, -24, 24];
+
+      visibleSeries.forEach((summary, seriesIndex) => {
+        const statsByPoint = new Map(summary.pointStats.map((stat) => [stat.point, stat]));
+        const linePoints = unionPoints
+          .map((point, index) => {
+            const stat = statsByPoint.get(point);
+            if (!stat) {
+              return null;
+            }
+            return {
+              x: xForIndex(index),
+              y: yForAccuracy(stat.accuracy),
+              stat
+            };
+          })
+          .filter(Boolean);
+
+        if (!linePoints.length) {
+          return;
+        }
+
+        const linePath = linePoints
+          .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
+          .join(" ");
+
+        accuracyChartEl.append(
+          createSvgNode("path", {
+            d: linePath,
+            fill: "none",
+            stroke: getSeriesColor(summary.key),
+            "stroke-width": 3,
+            "stroke-linejoin": "round",
+            "stroke-linecap": "round",
+            "stroke-dasharray": getSeriesDasharray(summary.key) || ""
+          })
+        );
+
+        for (const point of linePoints) {
+          const circle = createSvgNode("circle", {
+            cx: point.x,
+            cy: point.y,
+            r: 5,
+            fill: "#fff8ef",
+            stroke: getSeriesColor(summary.key),
+            "stroke-width": 2
+          });
+          circle.append(document.createElementNS("http://www.w3.org/2000/svg", "title"));
+          circle.firstChild.textContent =
+            `${summary.series.label} ${formatPercent(point.stat.point)}: ${point.stat.correct}/${point.stat.total}`;
+          accuracyChartEl.append(circle);
+
+          if (showPointLabels) {
+            const label = createSvgNode("text", {
+              x: point.x,
+              y: Math.max(padding.top + 12, point.y + (yOffsets[seriesIndex] || -12)),
+              "text-anchor": "middle",
+              class: "chart-point-label"
+            });
+            label.textContent = `${Math.round(point.stat.accuracy * 100)}%`;
+            accuracyChartEl.append(label);
+          }
+        }
+      });
+
+      renderSpotlightCards(visibleSeries);
+    }
+
+    function renderSpotlightCards(seriesSummaries) {
+      spotlightGridEl.replaceChildren();
+      const spotlightPointLabel = state.spotlightPoint === null ? "n/a" : formatPercent(state.spotlightPoint);
+      for (const summary of seriesSummaries) {
+        const card = document.createElement("div");
+        card.className = "spotlight-card";
+
+        const head = document.createElement("div");
+        head.className = "spotlight-head";
+        const strong = document.createElement("strong");
+        strong.className = getSeriesCssClass(summary.key);
+        strong.textContent = summary.series.label;
+        const value = document.createElement("span");
+        value.className = "spotlight-value";
+        value.textContent = summary.spotlight
+          ? formatMaybePercent(summary.spotlight.accuracy)
+          : "n/a";
+        head.append(strong, value);
+
+        const ratio = document.createElement("small");
+        ratio.textContent = summary.spotlight
+          ? `${spotlightPointLabel}: ${summary.spotlight.correct}/${summary.spotlight.total} correct`
+          : `${spotlightPointLabel}: no data`;
+
+        const bar = document.createElement("div");
+        bar.className = "spotlight-bar";
+        const fill = document.createElement("span");
+        fill.style.width = `${summary.spotlight ? summary.spotlight.accuracy * 100 : 0}%`;
+        fill.style.background = getSeriesColor(summary.key);
+        bar.append(fill);
+
+        card.append(head, ratio, bar);
+        spotlightGridEl.append(card);
+      }
+    }
+
+    function renderOverview() {
+      const seriesSummaries = getSeriesSummaries();
+      renderTopStats(seriesSummaries);
+      renderSeriesSummaries(seriesSummaries);
+      renderChart(seriesSummaries);
+    }
+
+    function updateSelectionFromMatrixRows(matrixRows, matrixSeries) {
+      if (!matrixSeries || !matrixRows.length) {
+        state.selectedQuestionId = null;
+        if (state.selectedPoint === null && state.spotlightPoint !== null) {
+          state.selectedPoint = state.spotlightPoint;
+        }
+        return;
+      }
+
+      const pointSet = new Set(matrixSeries.resamplePoints);
+      if (!pointSet.has(state.selectedPoint)) {
+        state.selectedPoint = pointSet.has(state.spotlightPoint)
+          ? state.spotlightPoint
+          : matrixSeries.resamplePoints[0];
+      }
+
+      const selectedRow = matrixRows.find((row) => row.questionId === state.selectedQuestionId);
+      if (!selectedRow) {
+        state.selectedQuestionId = matrixRows[0].questionId;
+      }
+    }
+
+    function selectCell(questionId, point) {
+      state.selectedQuestionId = questionId;
+      state.selectedPoint = point;
+      state.spotlightPoint = point;
+      renderAll();
+    }
+
+    function buildRowTrajectoryStrip(row, resamplePoints) {
+      const strip = document.createElement("div");
+      strip.className = "trajectory-strip";
+
+      for (const point of resamplePoints) {
+        const cell = row.cellByPoint.get(point);
+        const item = document.createElement("span");
+        item.className = "trajectory-dot";
+        if (!cell || cell.missing) {
+          item.classList.add("missing");
+          item.title = `${formatPercent(point)}: missing`;
+        } else {
+          item.classList.add(cell.correct ? "good" : "bad");
+          item.title = `${formatPercent(point)}: ${cell.correct ? "correct" : "incorrect"}`;
+        }
+        if (point === state.spotlightPoint) {
+          item.classList.add("spotlight");
+        }
+        if (row.questionId === state.selectedQuestionId && point === state.selectedPoint) {
+          item.classList.add("active");
+        }
+        strip.append(item);
+      }
+
+      return strip;
+    }
+
+    function renderMatrix() {
+      matrixHeadEl.replaceChildren();
+      matrixBodyEl.replaceChildren();
+
+      const matrixSeries = getMatrixSeries();
+      if (!matrixSeries) {
+        matrixCaptionEl.textContent = "Load at least one results file and its baseline to render the matrix.";
+        matrixPlaceholderEl.classList.remove("hidden");
+        matrixTableEl.classList.add("hidden");
+        return [];
+      }
+
+      const filteredRows = getFilteredRows(matrixSeries);
+      const matrixRows = getMatrixRows(matrixSeries);
+      updateSelectionFromMatrixRows(matrixRows, matrixSeries);
+
+      matrixCaptionEl.textContent =
+        `${matrixSeries.label}. ${matrixRows.length} of ${filteredRows.length} filtered questions shown${state.matrixRowLimit === "all" ? "" : ` (limit ${state.matrixRowLimit})`}.`;
+
+      if (!matrixRows.length || !matrixSeries.resamplePoints.length) {
+        matrixPlaceholderEl.textContent = filteredRows.length
+          ? "No matrix points are available for the focused series."
+          : `No questions match the current filters for ${matrixSeries.label}.`;
+        matrixPlaceholderEl.classList.remove("hidden");
+        matrixTableEl.classList.add("hidden");
+        return matrixRows;
+      }
+
+      matrixPlaceholderEl.classList.add("hidden");
+      matrixTableEl.classList.remove("hidden");
+
+      const headRow = document.createElement("tr");
+      const leftHead = document.createElement("th");
+      leftHead.className = "question-cell";
+      leftHead.textContent = "Row";
+      headRow.append(leftHead);
+
+      for (const point of matrixSeries.resamplePoints) {
+        const th = document.createElement("th");
+        th.className = "matrix-point-head";
+        if (point === state.spotlightPoint) {
+          th.classList.add("spotlight");
+        }
+        th.textContent = formatPercent(point);
+        headRow.append(th);
+      }
+      matrixHeadEl.append(headRow);
+
+      for (const row of matrixRows) {
+        const rowStats = getRowStats(row);
+        const tr = document.createElement("tr");
+        const th = document.createElement("th");
+        th.className = "question-cell";
+
+        const questionCard = document.createElement("div");
+        questionCard.className = "question-card";
+
+        const questionTop = document.createElement("div");
+        questionTop.className = "question-top";
+
+        const qid = document.createElement("span");
+        qid.className = "qid-badge";
+        qid.textContent = String(row.questionId);
+        qid.classList.add(
+          row.baselineCorrect === true
+            ? "baseline-good"
+            : row.baselineCorrect === false
+              ? "baseline-bad"
+              : "baseline-unknown"
+        );
+        qid.setAttribute("aria-label", `Question ${row.questionId}`);
+
+        const baselineBadge = document.createElement("span");
+        baselineBadge.className = "meta-badge";
+        baselineBadge.textContent = row.baselineCorrect === true
+          ? "Base OK"
+          : row.baselineCorrect === false
+            ? "Base NO"
+            : "Base ??";
+
+        questionTop.append(qid, baselineBadge);
+
+        const questionMeta = document.createElement("div");
+        questionMeta.className = "question-meta";
+        const accuracyLine = document.createElement("div");
+        accuracyLine.className = "row-stat";
+        accuracyLine.textContent = `${formatRatio(rowStats.correct, rowStats.total)} correct`;
+        const categoryLine = document.createElement("div");
+        categoryLine.className = "row-stat";
+        categoryLine.textContent = formatCategoryLabel(row.category);
+        questionMeta.append(accuracyLine, categoryLine, buildRowTrajectoryStrip(row, matrixSeries.resamplePoints));
+
+        questionCard.append(questionTop, questionMeta);
+        th.append(questionCard);
+        tr.append(th);
+
+        for (const point of matrixSeries.resamplePoints) {
+          const cell = row.cellByPoint.get(point) || {
+            key: `${row.questionId}:${point}`,
+            questionId: row.questionId,
+            point,
+            missing: true
+          };
+          const td = document.createElement("td");
+          td.className = "matrix-cell";
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "matrix-button";
+          if (point === state.spotlightPoint) {
+            button.classList.add("spotlight");
+          }
+
+          if (cell.missing) {
+            button.classList.add("missing");
+            button.textContent = "--";
+            button.disabled = true;
+            button.title = "No result for this resample point";
+          } else {
+            button.classList.add(cell.correct ? "good" : "bad");
+            button.dataset.selection = `${row.questionId}:${point}`;
+            button.textContent = cell.correct ? "C" : "X";
+            button.title = `${SERIES_CONFIG[cell.seriesKey].label} · Q${cell.questionId} · ${formatPercent(point)} · ${cell.answerSummary || "(empty)"}`;
+            button.setAttribute(
+              "aria-label",
+              `${SERIES_CONFIG[cell.seriesKey].label}, question ${cell.questionId}, ${formatPercent(point)}, ${cell.correct ? "correct" : "incorrect"}`
+            );
+            if (row.questionId === state.selectedQuestionId && point === state.selectedPoint) {
+              button.classList.add("active");
+            }
+            button.addEventListener("click", () => selectCell(row.questionId, point));
+          }
+
+          td.append(button);
+          tr.append(td);
+        }
+
+        matrixBodyEl.append(tr);
+      }
+
+      return matrixRows;
+    }
+
+    function getSelectionMeta() {
+      const meta = state.sharedMetaByQuestionId.get(state.selectedQuestionId) || {
+        category: "",
+        question: "",
+        prompt: ""
+      };
+      return {
+        questionId: state.selectedQuestionId,
+        category: meta.category || "unknown",
+        question: meta.question || "",
+        prompt: meta.prompt || meta.question || ""
+      };
+    }
+
+    function getDetailSeriesKeys() {
+      const keys = new Set(getVisibleSeriesKeys());
+      if (state.matrixSeriesKey) {
+        keys.add(state.matrixSeriesKey);
+      }
+      return Array.from(keys).filter((seriesKey) => getLoadedSeriesKeys().includes(seriesKey));
+    }
+
+    function getDetailEntries() {
+      return getDetailSeriesKeys().map((seriesKey) => {
+        const series = state.seriesByKey[seriesKey];
+        const row = series && series.rowByQuestionId ? series.rowByQuestionId.get(state.selectedQuestionId) : null;
+        const cell = row && row.cellByPoint ? row.cellByPoint.get(state.selectedPoint) : null;
+        return {
+          key: seriesKey,
+          series,
+          row,
+          cell: cell || null
+        };
+      });
+    }
+
+    function createStatusPill(label, mode) {
+      const span = document.createElement("span");
+      span.className = `status-pill ${mode}`;
+      span.textContent = label;
+      return span;
+    }
+
+    function renderQuestionCard(selectionMeta, detailEntries) {
+      selectedQuestionCardEl.replaceChildren();
+
+      const top = document.createElement("div");
+      top.className = "question-hero-top";
+
+      const left = document.createElement("div");
+      const overline = document.createElement("div");
+      overline.className = "section-overline";
+      overline.textContent = `Question ${selectionMeta.questionId} · ${formatCategoryLabel(selectionMeta.category)}`;
+      const title = document.createElement("h3");
+      title.textContent = selectionMeta.prompt || selectionMeta.question || "(missing prompt)";
+      left.append(overline, title);
+
+      const right = document.createElement("div");
+      right.className = "question-meta";
+      right.append(
+        createStatusPill(
+          state.selectedPoint === null ? "No point selected" : `Point ${formatPercent(state.selectedPoint)}`,
+          "neutral"
+        ),
+        createStatusPill(
+          `${detailEntries.filter((entry) => entry.row).length}/${detailEntries.length} series carry this question`,
+          "neutral"
+        )
+      );
+
+      const body = document.createElement("p");
+      body.textContent = selectionMeta.question && selectionMeta.question !== selectionMeta.prompt
+        ? selectionMeta.question
+        : "The drilldown below shows the selected point across each visible comparison series, plus the current matrix focus series.";
+
+      top.append(left, right);
+      selectedQuestionCardEl.append(top, body);
+    }
+
+    function renderCompareStrip(detailEntries) {
+      selectedSeriesStripEl.replaceChildren();
+
+      for (const entry of detailEntries) {
+        const card = document.createElement("article");
+        card.className = "compare-card";
+
+        const header = document.createElement("header");
+        const title = document.createElement("strong");
+        title.className = getSeriesCssClass(entry.key);
+        title.textContent = SERIES_CONFIG[entry.key].label;
+
+        let statusPill;
+        if (!entry.row) {
+          statusPill = createStatusPill("No Question", "warn");
+        } else if (!entry.cell) {
+          statusPill = createStatusPill("No Point", "warn");
+        } else {
+          statusPill = createStatusPill(entry.cell.correct ? "Correct" : "Incorrect", entry.cell.correct ? "good" : "bad");
+        }
+        header.append(title, statusPill);
+
+        const copy = document.createElement("small");
+        if (!entry.row) {
+          copy.textContent = "This question is not present in the series.";
+        } else if (!entry.cell) {
+          copy.textContent = "The question exists here, but that resample point is missing.";
+        } else {
+          copy.textContent = entry.cell.answerSummary || "(empty)";
+        }
+
+        card.append(header, copy);
+        selectedSeriesStripEl.append(card);
+      }
+    }
+
+    function appendDetailBlock(container, labelText, content) {
+      const block = document.createElement("div");
+      block.className = "detail-block";
+      const label = document.createElement("label");
+      label.textContent = labelText;
+      const pre = document.createElement("pre");
+      pre.textContent = formatOptionalValue(content, "(none)");
+      block.append(label, pre);
+      container.append(block);
+    }
+
+    function renderDetailCards(detailEntries) {
+      detailSeriesStackEl.replaceChildren();
+
+      for (const entry of detailEntries) {
+        const details = document.createElement("details");
+        details.className = "detail-card";
+        if (entry.key === state.matrixSeriesKey) {
+          details.open = true;
+        }
+
+        const summary = document.createElement("summary");
+        const headline = document.createElement("div");
+        headline.className = "detail-headline";
+        const strong = document.createElement("strong");
+        strong.className = getSeriesCssClass(entry.key);
+        strong.textContent = SERIES_CONFIG[entry.key].label;
+        const small = document.createElement("small");
+        if (!entry.row) {
+          small.textContent = "Question absent from this series.";
+        } else if (!entry.cell) {
+          small.textContent = "Question present, but the selected resample point is missing.";
+        } else {
+          small.textContent = `${entry.cell.answerSummary || "(empty)"} · ${entry.cell.correct ? "correct" : "incorrect"}`;
+        }
+        headline.append(strong, small);
+
+        let pill;
+        if (!entry.row) {
+          pill = createStatusPill("No Question", "warn");
+        } else if (!entry.cell) {
+          pill = createStatusPill("No Point", "warn");
+        } else {
+          pill = createStatusPill(entry.cell.correct ? "Correct" : "Incorrect", entry.cell.correct ? "good" : "bad");
+        }
+
+        summary.append(headline, pill);
+        details.append(summary);
+
+        if (entry.row && entry.cell) {
+          const body = document.createElement("div");
+          body.className = "detail-card-body";
+
+          const kpiGrid = document.createElement("div");
+          kpiGrid.className = "detail-kpis";
+          const kpis = [
+            { label: "Actual Answer", value: entry.cell.actualAnswer || "(none)" },
+            {
+              label: entry.series.family === "open" ? "Candidate Answer" : "Parsed Answer",
+              value: entry.cell.parsedAnswer || entry.cell.answer || "(none)"
+            },
+            { label: "Raw Answer", value: entry.cell.answer || entry.cell.response || "(none)" },
+            {
+              label: "Tokens",
+              value: entry.cell.resampleTokens === null ? "(missing)" : String(entry.cell.resampleTokens)
+            },
+            {
+              label: "Trace Tokens",
+              value: entry.cell.reasoningTokenCount === null ? "(missing)" : String(entry.cell.reasoningTokenCount)
+            },
+            {
+              label: "Baseline",
+              value: entry.row.baselineCorrect === true ? "Correct" : entry.row.baselineCorrect === false ? "Incorrect" : "Unknown"
+            },
+            {
+              label: "Judge",
+              value: entry.cell.judgeResponse || entry.cell.judgeVerdict || entry.cell.verdict || "(none)"
+            },
+            {
+              label: "Verdict Source",
+              value: entry.cell.verdictSource || (entry.cell.usedLlmJudge === true ? "llm_judge" : "direct_or_none")
+            }
+          ];
+
+          for (const item of kpis) {
+            const card = document.createElement("div");
+            card.className = "detail-kpi";
+            const label = document.createElement("strong");
+            label.textContent = item.label;
+            const span = document.createElement("span");
+            span.textContent = item.value;
+            card.append(label, span);
+            kpiGrid.append(card);
+          }
+
+          const blocks = document.createElement("div");
+          blocks.className = "detail-blocks";
+          appendDetailBlock(blocks, "Question / Prompt", entry.row.prompt || entry.row.question || "(missing prompt)");
+          appendDetailBlock(
+            blocks,
+            "Injected Prefix",
+            typeof entry.cell.injectedPrefixText === "string"
+              ? (entry.cell.injectedPrefixText || "[empty partial reasoning trace]")
+              : approximateReasoningPrefix(entry.cell.reasoningTrace, entry.cell.resampleTokens, entry.cell.reasoningTokenCount)
+          );
+          appendDetailBlock(blocks, "Probe Preview", entry.cell.userMessage);
+          appendDetailBlock(blocks, "Stored Response", entry.cell.response || "(empty)");
+          appendDetailBlock(blocks, "Raw Probe Output", entry.cell.rawProbeResponse || "(empty)");
+          appendDetailBlock(blocks, "Judge Preview", entry.cell.judgePreview || "(none)");
+          appendDetailBlock(blocks, "Stored Judge Output", entry.cell.judgeResponse || "(empty)");
+
+          body.append(kpiGrid, blocks);
+          details.append(body);
+        }
+
+        detailSeriesStackEl.append(details);
+      }
+    }
+
+    function renderDetails() {
+      if (state.selectedQuestionId === null || state.selectedPoint === null) {
+        detailPlaceholderEl.classList.remove("hidden");
+        detailContentEl.classList.add("hidden");
+        detailCaptionEl.textContent = "Select a matrix cell to inspect that question and resample point across the active comparison series.";
+        return;
+      }
+
+      const detailEntries = getDetailEntries();
+      const selectionMeta = getSelectionMeta();
+      detailCaptionEl.textContent =
+        `Question ${state.selectedQuestionId} at ${formatPercent(state.selectedPoint)} across ${detailEntries.length} series.`;
+
+      detailPlaceholderEl.classList.add("hidden");
+      detailContentEl.classList.remove("hidden");
+
+      renderQuestionCard(selectionMeta, detailEntries);
+      renderCompareStrip(detailEntries);
+      renderDetailCards(detailEntries);
+    }
+
+    function renderEmptyState() {
+      renderHeroPills();
+      renderSeriesPicker();
+      syncMatrixSeriesSelect();
+      syncCategorySelect();
+      syncSpotlightPointSelect();
+      topStatsGridEl.replaceChildren();
+      seriesSummaryGridEl.replaceChildren();
+      spotlightGridEl.replaceChildren();
+      accuracyChartEl.replaceChildren();
+      chartCaptionEl.textContent = "Load data to compare accuracy trajectories by resample point.";
+      matrixCaptionEl.textContent = "Load at least one results file and its baseline to render the matrix.";
+      matrixHeadEl.replaceChildren();
+      matrixBodyEl.replaceChildren();
+      matrixPlaceholderEl.classList.remove("hidden");
+      matrixTableEl.classList.add("hidden");
+      detailPlaceholderEl.classList.remove("hidden");
+      detailContentEl.classList.add("hidden");
+    }
+
+    function renderAll() {
+      if (!getLoadedSeriesKeys().length) {
+        renderEmptyState();
+        return;
+      }
+
+      state.visibleSeriesKeys = getVisibleSeriesKeys();
+      renderHeroPills();
+      renderSeriesPicker();
+      syncMatrixSeriesSelect();
+      syncCategorySelect();
+      syncSpotlightPointSelect();
+      renderOverview();
+      renderMatrix();
+      renderDetails();
+    }
+
+    function initialiseFromTexts(texts, sourceLabel) {
+      const openResultsRows = texts.openResults ? parseJsonl(texts.openResults) : [];
+      const openBaselineRows = texts.openBaseline ? parseJsonl(texts.openBaseline) : [];
+      const optionsOriginalRows = texts.optionsOriginal ? parseJsonl(texts.optionsOriginal) : [];
+      const optionsRandomRows = texts.optionsRandom ? parseJsonl(texts.optionsRandom) : [];
+      const optionsShuffleRows = texts.optionsShuffle ? parseJsonl(texts.optionsShuffle) : [];
+      const optionsBaselineRows = texts.optionsBaseline ? parseJsonl(texts.optionsBaseline) : [];
+
+      const seriesByKey = {};
+
+      if (openResultsRows.length) {
+        seriesByKey["open:original"] = buildOpenSeries(openResultsRows, openBaselineRows);
+      }
+      if (optionsOriginalRows.length) {
+        seriesByKey["options:original"] = buildOptionsSeries(optionsOriginalRows, optionsBaselineRows, "original");
+      }
+      if (optionsRandomRows.length) {
+        seriesByKey["options:random"] = buildOptionsSeries(optionsRandomRows, optionsBaselineRows, "random");
+      }
+      if (optionsShuffleRows.length) {
+        seriesByKey["options:shuffle"] = buildOptionsSeries(optionsShuffleRows, optionsBaselineRows, "shuffle");
+      }
+
+      state.seriesByKey = seriesByKey;
+      state.sharedMetaByQuestionId = buildSharedMetaByQuestionId(seriesByKey);
+      enrichSeriesWithSharedMeta(state.seriesByKey, state.sharedMetaByQuestionId);
+
+      const loaded = getLoadedSeriesKeys();
+      if (!loaded.length) {
+        renderEmptyState();
+        setStatus("No usable series were loaded. Select result files or reload the project files.");
+        return;
+      }
+
+      if (!state.visibleSeriesKeys.length) {
+        state.visibleSeriesKeys = loaded.slice(0, Math.min(loaded.length, 4));
+      }
+      if (!state.matrixSeriesKey || !loaded.includes(state.matrixSeriesKey)) {
+        state.matrixSeriesKey = state.visibleSeriesKeys[0] || loaded[0];
+      }
+
+      renderAll();
+
+      const summary = loaded
+        .map((seriesKey) => {
+          const series = state.seriesByKey[seriesKey];
+          return `${SERIES_CONFIG[seriesKey].label}: ${series.rows.length} questions`;
+        })
+        .join(" | ");
+
+      setStatus(`${sourceLabel}. ${summary}.`);
+    }
+
+    async function tryAutoLoad() {
+      setStatus("Loading project files...");
+      try {
+        const directoryHandle = isLocalFilePage() ? await getProjectDirectoryHandle() : null;
+        const loadText = isLocalFilePage()
+          ? async (spec) => readProjectFileFromDirectory(directoryHandle, spec.repoPath)
+          : async (spec) => fetchText(spec.fetchPath);
+
+        const entries = await Promise.all(
+          Object.entries(FILE_SPECS).map(async ([key, spec]) => {
+            try {
+              return [key, await loadText(spec)];
+            } catch (error) {
+              return [key, null, error];
+            }
+          })
+        );
+
+        const texts = {};
+        const failures = [];
+        for (const [key, value, error] of entries) {
+          texts[key] = value;
+          if (error) {
+            failures.push(`${key}: ${describeAutoLoadFailure(error)}`);
+          }
+        }
+
+        initialiseFromTexts(
+          texts,
+          failures.length
+            ? `Loaded available project files (${failures.length} optional load failures)`
+            : "Loaded project files automatically"
+        );
+      } catch (error) {
+        if (error && error.code === "NotFoundError") {
+          state.projectDirectoryHandle = null;
+        }
+        const message = describeAutoLoadFailure(error);
+        if (isLocalFilePage() && supportsDirectoryPicker()) {
+          setStatus(`Automatic loading failed: ${message}. Click Reload Project Files to select the repository root, or use the file pickers.`);
+          return;
+        }
+        setStatus(`Automatic loading failed: ${message}. Use the file pickers or run \`python3 serve_visualisations.py\`.`);
+      }
+    }
+
+    async function tryUploadLoad() {
+      const hasAnyResults = Object.entries(state.uploadedTexts).some(([key, value]) => key !== "openBaseline" && key !== "optionsBaseline" ? Boolean(value) : false);
+      if (!hasAnyResults) {
+        return;
+      }
+      try {
+        initialiseFromTexts(state.uploadedTexts, "Loaded selected files");
+      } catch (error) {
+        setStatus(`Could not parse selected files: ${error.message}`);
+      }
+    }
+
+    for (const [key, input] of Object.entries(fileInputs)) {
+      input.addEventListener("change", async (event) => {
+        const [file] = event.target.files;
+        if (!file) {
+          state.uploadedTexts[key] = null;
+          await tryUploadLoad();
+          return;
+        }
+        try {
+          state.uploadedTexts[key] = await readLocalFile(file);
+          setStatus(`${file.name} selected for ${key}.`);
+          await tryUploadLoad();
+        } catch (error) {
+          setStatus(error.message);
+        }
+      });
+    }
+
+    reloadButtonEl.addEventListener("click", () => {
+      void tryAutoLoad();
+    });
+
+    matrixSeriesSelectEl.addEventListener("change", () => {
+      state.matrixSeriesKey = matrixSeriesSelectEl.value;
+      renderAll();
+    });
+
+    categoryFilterSelectEl.addEventListener("change", () => {
+      state.activeCategory = categoryFilterSelectEl.value;
+      renderAll();
+    });
+
+    baselineFilterSelectEl.addEventListener("change", () => {
+      state.baselineFilter = baselineFilterSelectEl.value;
+      renderAll();
+    });
+
+    rowPatternSelectEl.addEventListener("change", () => {
+      state.rowPatternFilter = rowPatternSelectEl.value;
+      renderAll();
+    });
+
+    sortModeSelectEl.addEventListener("change", () => {
+      state.sortMode = sortModeSelectEl.value;
+      renderAll();
+    });
+
+    matrixRowLimitSelectEl.addEventListener("change", () => {
+      state.matrixRowLimit = matrixRowLimitSelectEl.value;
+      renderAll();
+    });
+
+    spotlightPointSelectEl.addEventListener("change", () => {
+      const point = Number(spotlightPointSelectEl.value);
+      state.spotlightPoint = Number.isFinite(point) ? point : null;
+      if (state.selectedQuestionId !== null) {
+        state.selectedPoint = state.spotlightPoint;
+      }
+      renderAll();
+    });
+
+    questionSearchInputEl.addEventListener("input", () => {
+      state.searchQuery = questionSearchInputEl.value;
+      renderAll();
+    });
+
+    excludeAlwaysWrongToggleEl.addEventListener("change", () => {
+      renderAll();
+    });
+
+    renderEmptyState();
+
+    if (isLocalFilePage()) {
+      if (supportsDirectoryPicker()) {
+        setStatus("Open from disk detected. Click Reload Project Files to grant access to the repository root, or use the file pickers.");
+      } else {
+        setStatus("Open from disk detected. This browser cannot automatically load local files here, so use the file pickers or run `python3 serve_visualisations.py`.");
+      }
+    } else {
+      void tryAutoLoad();
+    }
+  </script>
+</body>
+</html>

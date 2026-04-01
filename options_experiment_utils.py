@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
+import random
 import re
 from functools import lru_cache
 from pathlib import Path
@@ -10,7 +12,12 @@ from pathlib import Path
 MODEL_ID = "qwen/qwen3-32b"
 TOKENIZER_MODEL_ID = "Qwen/Qwen3-32B"
 JUDGE_MODEL_ID = "llama-3.1-8b-instant"
+OPTIONS_BASELINE_SCHEMA_VERSION = 1
 PROBE_METHOD_VERSION = 2
+RESAMPLE_SCHEMA_VERSION = 2
+SUPPORTED_RESAMPLE_CONDITIONS = ("original", "random", "shuffle")
+RANDOM_CONTROL_DEFAULT_SEED = 0
+OPTIONS_DEFAULT_DATASET_CATEGORY = "math"
 
 SYSTEM_PROMPT = (
     "Solve the following problem. Please make sure that your response only "
@@ -50,6 +57,18 @@ LABEL_SET = set(LABELS)
 ROOT_DIR = Path(__file__).resolve().parent
 BASELINE_OPTIONS_PATH = ROOT_DIR / "baseline" / "baseline_CoTs_options.jsonl"
 OPTIONS_RESULTS_PATH = ROOT_DIR / "resample_results" / "options_results.jsonl"
+RANDOM_OPTIONS_RESULTS_PATH = ROOT_DIR / "resample_results" / "options_random_results.jsonl"
+SHUFFLE_OPTIONS_RESULTS_PATH = ROOT_DIR / "resample_results" / "options_shuffle_results.jsonl"
+
+
+def normalise_category(category):
+    return (category or "").strip().casefold()
+
+
+def category_value_matches(row_category, requested_category):
+    if normalise_category(requested_category) == "all":
+        return True
+    return normalise_category(row_category) == normalise_category(requested_category)
 
 
 def read_jsonl(path):
@@ -71,6 +90,24 @@ def write_jsonl(path, rows):
         for row in rows:
             f.write(json.dumps(row))
             f.write("\n")
+
+
+def validate_resample_condition(condition):
+    if condition not in SUPPORTED_RESAMPLE_CONDITIONS:
+        supported = ", ".join(SUPPORTED_RESAMPLE_CONDITIONS)
+        raise ValueError(f"Unsupported resample condition '{condition}'. Expected one of: {supported}.")
+    return condition
+
+
+def get_options_results_path(condition):
+    condition = validate_resample_condition(condition)
+    if condition == "original":
+        return OPTIONS_RESULTS_PATH
+    if condition == "random":
+        return RANDOM_OPTIONS_RESULTS_PATH
+    if condition == "shuffle":
+        return SHUFFLE_OPTIONS_RESULTS_PATH
+    raise AssertionError(f"Unhandled condition: {condition}")
 
 
 def build_options_prompt(question, options):
@@ -141,7 +178,18 @@ def extract_final_answer_text(response):
     return response.strip()
 
 
-def judge_answer_label(client, response, options):
+def resolve_answer_label(client, response, options):
+    direct_label = extract_answer_label(response)
+    if direct_label:
+        return {
+            "judge_response": None,
+            "answer": direct_label,
+            "direct_parsed_answer": direct_label,
+            "judge_parsed_answer": None,
+            "used_llm_judge": False,
+            "answer_source": "direct_parse",
+        }
+
     labelled_options = [f"{LABELS[i]}: {options[i]}" for i in range(len(options))]
     completion = client.chat.completions.create(
         messages=[
@@ -174,13 +222,28 @@ def judge_answer_label(client, response, options):
     judge_response = completion.choices[0].message.content.strip()
     judged_label = extract_answer_label(judge_response)
     if judged_label:
-        return judge_response, judged_label
+        return {
+            "judge_response": judge_response,
+            "answer": judged_label,
+            "direct_parsed_answer": "UNKNOWN",
+            "judge_parsed_answer": judged_label,
+            "used_llm_judge": True,
+            "answer_source": "llm_judge",
+        }
 
-    direct_label = extract_answer_label(response)
-    if direct_label:
-        return judge_response, direct_label
+    return {
+        "judge_response": judge_response,
+        "answer": "UNKNOWN",
+        "direct_parsed_answer": "UNKNOWN",
+        "judge_parsed_answer": "UNKNOWN",
+        "used_llm_judge": True,
+        "answer_source": "unknown",
+    }
 
-    return judge_response, "UNKNOWN"
+
+def judge_answer_label(client, response, options):
+    resolution = resolve_answer_label(client, response, options)
+    return resolution["judge_response"], resolution["answer"]
 
 
 @lru_cache(maxsize=1)
@@ -206,6 +269,15 @@ def get_reasoning_token_ids(reasoning_trace):
     return tokenizer.encode(reasoning_trace or "", add_special_tokens=False)
 
 
+def decode_token_ids(token_ids):
+    tokenizer = get_qwen_tokenizer()
+    return tokenizer.decode(
+        token_ids,
+        skip_special_tokens=False,
+        clean_up_tokenization_spaces=False,
+    )
+
+
 def get_reasoning_token_count(reasoning_trace):
     return len(get_reasoning_token_ids(reasoning_trace))
 
@@ -222,14 +294,78 @@ def truncate_reasoning_trace(reasoning_trace, token_count):
     if token_count <= 0:
         return ""
 
-    tokenizer = get_qwen_tokenizer()
     token_ids = get_reasoning_token_ids(reasoning_trace)
     prefix_ids = token_ids[:token_count]
-    return tokenizer.decode(
-        prefix_ids,
-        skip_special_tokens=False,
-        clean_up_tokenization_spaces=False,
-    )
+    return decode_token_ids(prefix_ids)
+
+
+@lru_cache(maxsize=1)
+def get_non_special_vocab_token_ids():
+    tokenizer = get_qwen_tokenizer()
+    special_ids = {
+        int(token_id)
+        for token_id in tokenizer.all_special_ids
+        if token_id is not None
+    }
+    vocab_token_ids = sorted({int(token_id) for token_id in tokenizer.get_vocab().values()})
+    return tuple(token_id for token_id in vocab_token_ids if token_id not in special_ids)
+
+
+def _stable_seed(*parts):
+    payload = "|".join(str(part) for part in parts).encode("utf-8")
+    return int.from_bytes(hashlib.sha256(payload).digest()[:8], "big")
+
+
+def build_resample_condition_full_token_ids(
+    condition,
+    reasoning_token_ids,
+    question_id,
+    base_seed=RANDOM_CONTROL_DEFAULT_SEED,
+):
+    condition = validate_resample_condition(condition)
+    source_token_ids = list(reasoning_token_ids or [])
+
+    if condition == "original":
+        return source_token_ids, {
+            "source": "original_reasoning_trace",
+        }
+
+    if condition == "random":
+        population = get_non_special_vocab_token_ids()
+        sequence_seed = _stable_seed(
+            "options_random_control",
+            base_seed,
+            question_id,
+            len(source_token_ids),
+        )
+        rng = random.Random(sequence_seed)
+        random_token_ids = [
+            population[rng.randrange(len(population))]
+            for _ in range(len(source_token_ids))
+        ]
+        return random_token_ids, {
+            "source": "uniform_random_vocab_excluding_special",
+            "base_seed": base_seed,
+            "sequence_seed": sequence_seed,
+        }
+
+    if condition == "shuffle":
+        sequence_seed = _stable_seed(
+            "options_shuffle_control",
+            base_seed,
+            question_id,
+            len(source_token_ids),
+        )
+        shuffled_token_ids = list(source_token_ids)
+        rng = random.Random(sequence_seed)
+        rng.shuffle(shuffled_token_ids)
+        return shuffled_token_ids, {
+            "source": "original_reasoning_trace_token_permutation",
+            "base_seed": base_seed,
+            "sequence_seed": sequence_seed,
+        }
+
+    raise AssertionError(f"Unhandled condition: {condition}")
 
 
 def build_reasoning_excerpt(reasoning_prefix):
@@ -286,3 +422,27 @@ def probe_response_needs_retry(raw_probe_response, response):
         return True
 
     return len(candidate.split()) > 6
+
+
+def probe_answer(client, prompt, reasoning_prefix):
+    attempts = (False, True)
+    last_raw_probe_response = ""
+    last_response = ""
+
+    for retry in attempts:
+        completion = client.chat.completions.create(
+            messages=build_probe_messages(prompt, reasoning_prefix, retry=retry),
+            model=MODEL_ID,
+            temperature=PROBE_TEMPERATURE,
+            top_p=PROBE_TOP_P,
+            max_completion_tokens=PROBE_MAX_COMPLETION_TOKENS,
+        )
+        raw_probe_response = completion.choices[0].message.content or ""
+        response = extract_final_answer_text(raw_probe_response)
+
+        last_raw_probe_response = raw_probe_response
+        last_response = response
+        if not probe_response_needs_retry(raw_probe_response, response):
+            break
+
+    return last_raw_probe_response, last_response
