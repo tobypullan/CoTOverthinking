@@ -4,20 +4,20 @@ import re
 from pathlib import Path
 
 
-MODEL_ID = "Qwen/Qwen3-32B"
+MODEL_ID = "google/gemma-3-4b-it"
 OPTIONS_BASELINE_SCHEMA_VERSION = 1
 OPTIONS_DEFAULT_DATASET_CATEGORY = "math"
 
 SYSTEM_PROMPT = (
-    "Solve the following problem. Please make sure that your response only "
-    "consists of a single letter corresponding to the correct answer choice. "
-    "Do not include anything else in your final response."
+    "Solve the following multiple-choice problem. First write your reasoning "
+    "inside <think> and </think>. After the closing </think> tag, output only "
+    "a single uppercase letter corresponding to the correct answer choice."
 )
 
 FULL_TRACE_TEMPERATURE = 0.6
 FULL_TRACE_TOP_P = 0.95
 FULL_TRACE_TOP_K = 20
-FULL_TRACE_MAX_COMPLETION_TOKENS = 38912
+FULL_TRACE_MAX_COMPLETION_TOKENS = 8192
 
 JUDGE_TEMPERATURE = 0.0
 JUDGE_TOP_P = 1.0
@@ -120,10 +120,23 @@ def extract_final_answer_text(response):
     return response.strip()
 
 
-class LocalQwenRunner:
+def build_chat_messages(system_text, user_text):
+    return [
+        {
+            "role": "system",
+            "content": [{"type": "text", "text": system_text}],
+        },
+        {
+            "role": "user",
+            "content": [{"type": "text", "text": user_text}],
+        },
+    ]
+
+
+class LocalGemmaRunner:
     def __init__(self, model_id, local_files_only=False, torch_dtype="auto"):
         import torch
-        from transformers import AutoModelForCausalLM, AutoTokenizer
+        from transformers import AutoProcessor, Gemma3ForConditionalGeneration
 
         if not torch.cuda.is_available():
             raise RuntimeError(
@@ -134,21 +147,32 @@ class LocalQwenRunner:
         self.torch = torch
         self.model_id = model_id
         self.torch_dtype = self._resolve_torch_dtype(torch_dtype)
-        self.tokenizer = AutoTokenizer.from_pretrained(
+        self.processor = AutoProcessor.from_pretrained(
             model_id,
             local_files_only=local_files_only,
         )
+        self.tokenizer = getattr(self.processor, "tokenizer", None)
+        if self.tokenizer is None:
+            raise RuntimeError(
+                "Failed to access the tokenizer from the Gemma processor."
+            )
         if self.tokenizer.pad_token_id is None and self.tokenizer.eos_token_id is not None:
             self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
 
-        self.model = AutoModelForCausalLM.from_pretrained(
+        self.model = Gemma3ForConditionalGeneration.from_pretrained(
             model_id,
             torch_dtype=self.torch_dtype,
             device_map="auto",
+            attn_implementation="sdpa",
             local_files_only=local_files_only,
         )
         self.model.eval()
-        self.max_context_tokens = getattr(self.model.config, "max_position_embeddings", None)
+        text_config = getattr(self.model.config, "text_config", None)
+        self.max_context_tokens = getattr(
+            text_config,
+            "max_position_embeddings",
+            getattr(self.model.config, "max_position_embeddings", None),
+        )
 
     def _resolve_torch_dtype(self, torch_dtype):
         if torch_dtype == "auto":
@@ -171,27 +195,11 @@ class LocalQwenRunner:
                 f"Expected one of: auto, {supported}."
             ) from exc
 
-    def _build_prompt(self, messages, enable_thinking):
-        try:
-            return self.tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True,
-                enable_thinking=enable_thinking,
-            )
-        except TypeError as exc:
-            raise RuntimeError(
-                "This script requires `transformers>=4.51.0` because it relies "
-                "on Qwen3 chat templates with `enable_thinking=`."
-            ) from exc
-
-    def _normalise_generated_text(self, generated_text, enable_thinking):
+    def _normalise_generated_text(self, generated_text):
         generated_text = generated_text.strip("\n")
-        if not enable_thinking:
-            return generated_text.strip()
         if "<think>" in generated_text:
-            return generated_text
-        return f"<think>\n{generated_text}".strip()
+            return generated_text.strip()
+        return generated_text.strip()
 
     def generate(
         self,
@@ -201,14 +209,14 @@ class LocalQwenRunner:
         top_p,
         top_k,
         max_new_tokens,
-        enable_thinking,
     ):
-        prompt = self._build_prompt(messages, enable_thinking=enable_thinking)
-        model_inputs = self.tokenizer([prompt], return_tensors="pt")
-        model_inputs = {
-            key: value.to(self.model.device)
-            for key, value in model_inputs.items()
-        }
+        model_inputs = self.processor.apply_chat_template(
+            messages,
+            tokenize=True,
+            return_dict=True,
+            return_tensors="pt",
+            add_generation_prompt=True,
+        ).to(self.model.device)
         input_length = model_inputs["input_ids"].shape[-1]
 
         effective_max_new_tokens = max_new_tokens
@@ -244,10 +252,7 @@ class LocalQwenRunner:
             skip_special_tokens=True,
             clean_up_tokenization_spaces=False,
         )
-        raw_response = self._normalise_generated_text(
-            generated_text,
-            enable_thinking=enable_thinking,
-        )
+        raw_response = self._normalise_generated_text(generated_text)
 
         finish_reason = "length" if len(output_ids) >= effective_max_new_tokens else "stop"
         return {
@@ -275,33 +280,25 @@ def resolve_answer_label(runner, response, options):
 
     labelled_options = [f"{LABELS[i]}: {options[i]}" for i in range(len(options))]
     judge_completion = runner.generate(
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You extract the answer label already chosen in another "
-                    "model's response. Do not solve the question yourself. You "
-                    "may use the provided options only to map quoted or "
-                    "paraphrased option text back to a label. If the response "
-                    "does not clearly choose exactly one option, return only "
-                    "UNKNOWN."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"Options: {labelled_options}\n\n"
-                    f"Model response: {response}\n\n"
-                    "Return only one token: A, B, C, D, E, F, G, H, I, J, or "
-                    "UNKNOWN."
-                ),
-            },
-        ],
+        messages=build_chat_messages(
+            (
+                "You extract the answer label already chosen in another "
+                "model's response. Do not solve the question yourself. You may "
+                "use the provided options only to map quoted or paraphrased "
+                "option text back to a label. If the response does not clearly "
+                "choose exactly one option, return only UNKNOWN."
+            ),
+            (
+                f"Options: {labelled_options}\n\n"
+                f"Model response: {response}\n\n"
+                "Return only one token: A, B, C, D, E, F, G, H, I, J, or "
+                "UNKNOWN."
+            ),
+        ),
         temperature=JUDGE_TEMPERATURE,
         top_p=JUDGE_TOP_P,
         top_k=JUDGE_TOP_K,
         max_new_tokens=JUDGE_MAX_COMPLETION_TOKENS,
-        enable_thinking=False,
     )
     judge_response = judge_completion["raw_response"].strip()
     judged_label = extract_answer_label(judge_response)
@@ -356,15 +353,11 @@ def baseline_cot(q_id, runner, args):
     prompt = build_options_prompt(question, options)
 
     completion = runner.generate(
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
-        ],
+        messages=build_chat_messages(SYSTEM_PROMPT, prompt),
         temperature=FULL_TRACE_TEMPERATURE,
         top_p=FULL_TRACE_TOP_P,
         top_k=FULL_TRACE_TOP_K,
         max_new_tokens=args.max_new_tokens,
-        enable_thinking=True,
     )
 
     raw_response = completion["raw_response"]
@@ -462,7 +455,7 @@ def row_is_compatible(row, expected_model_id):
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Generate baseline Qwen3-32B CoTs for MMLU-Pro options prompts on Bede."
+        description="Generate baseline Gemma 3 4B CoTs for MMLU-Pro options prompts on Bede."
     )
     parser.add_argument(
         "--start",
@@ -542,7 +535,7 @@ def main():
         )
 
     print(f"Loading model {args.model_id}...")
-    runner = LocalQwenRunner(
+    runner = LocalGemmaRunner(
         model_id=args.model_id,
         local_files_only=args.local_files_only,
         torch_dtype=args.torch_dtype,

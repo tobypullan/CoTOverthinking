@@ -1,13 +1,15 @@
 # Running `baseline_CoT_options.py` On Bede
 
-This directory contains a Bede-native replacement for the Groq-backed `baseline_CoT_options.py` experiment. It runs `Qwen/Qwen3-32B` locally with Hugging Face `transformers` on a Grace Hopper GPU.
+This directory contains a Bede-native replacement for the Groq-backed `baseline_CoT_options.py` experiment. It now runs `google/gemma-3-4b-it` locally with Hugging Face `transformers` on a Grace Hopper GPU.
 
 ## What Changed
 
 - The Groq client has been removed.
 - Inference now runs locally through `transformers` on a Bede GPU node.
+- The default model is `google/gemma-3-4b-it`, which is small enough to fit comfortably within a `20 GB` home-directory quota.
 - The output schema is kept close to the original JSONL so it is easy to compare with your existing results.
 - The script writes to `CoT_Overthinking_Bede/baseline/baseline_CoTs_options.jsonl` by default.
+- Unlike the earlier Qwen version, Gemma does not have native Qwen-style thinking mode here, so the script explicitly prompts the model to place its reasoning in `<think>...</think>`.
 
 ## Recommended Bede Target
 
@@ -71,7 +73,7 @@ That script will:
 If you want a custom venv path:
 
 ```bash
-bash setup_bede_env.sh "$HOME/my-qwen-venv"
+bash setup_bede_env.sh "$HOME/my-gemma-venv"
 ```
 
 ## 4. Set Up Hugging Face Cache Directories
@@ -88,7 +90,25 @@ mkdir -p "$HF_HUB_CACHE" "$TRANSFORMERS_CACHE" "$HF_DATASETS_CACHE"
 
 If you use these often, add them to your shell init on Bede.
 
-## 5. Optional: Pre-Download The Model And Dataset
+## 5. Accept The Gemma License And Log In To Hugging Face
+
+`google/gemma-3-4b-it` is gated on Hugging Face. Before you try to download it, do both of these:
+
+1. Accept the Gemma usage terms on the model page:
+
+```text
+https://huggingface.co/google/gemma-3-4b-it
+```
+
+2. Log in from Bede:
+
+```bash
+huggingface-cli login
+```
+
+If you skip this, the first download attempt will fail even if the rest of the setup is correct.
+
+## 6. Optional: Pre-Download The Model And Dataset
 
 You can let the batch job download everything the first time, but it is cleaner to warm the cache from `ghlogin` first:
 
@@ -99,19 +119,19 @@ cd "$HOME/CoTOverthinking/CoT_Overthinking_Bede"
 python3 - <<'PY'
 from datasets import load_dataset
 from huggingface_hub import snapshot_download
-from transformers import AutoTokenizer
+from transformers import AutoProcessor
 
-model_id = "Qwen/Qwen3-32B"
-AutoTokenizer.from_pretrained(model_id)
+model_id = "google/gemma-3-4b-it"
+AutoProcessor.from_pretrained(model_id)
 snapshot_download(repo_id=model_id)
 load_dataset("TIGER-Lab/MMLU-Pro", split="test")
 print("Cache warm.")
 PY
 ```
 
-This step is optional, but it avoids mixing long model downloads into your first batch job.
+The full-precision model weights are about `8.6 GB` on disk, so this should fit inside a `20 GB` quota with some headroom for tokenizer files, dataset cache, and logs.
 
-## 6. Smoke Test On `ghtest`
+## 7. Smoke Test On `ghtest`
 
 Use a short GPU test before a long run.
 
@@ -132,12 +152,12 @@ export HF_DATASETS_CACHE=$HF_HOME/datasets
 
 cd "$HOME/CoTOverthinking/CoT_Overthinking_Bede"
 
-python3 baseline_CoT_options.py --question-ids 0 --model-id Qwen/Qwen3-32B
+python3 baseline_CoT_options.py --question-ids 0 --model-id google/gemma-3-4b-it
 ```
 
-If you want a lighter smoke test, swap in `--model-id Qwen/Qwen3-8B`.
+If you want a very small Gemma smoke test instead, swap in `--model-id google/gemma-3-1b-it`.
 
-## 7. Submit A Full Batch Job
+## 8. Submit A Full Batch Job
 
 Edit [`run_baseline_CoT_options.slurm`](./run_baseline_CoT_options.slurm):
 
@@ -170,7 +190,7 @@ The provided file is:
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
 #SBATCH --time=12:00:00
-#SBATCH --job-name=cot-options
+#SBATCH --job-name=cot-gemma4b
 #SBATCH --output=%x-%j.out
 
 set -euo pipefail
@@ -193,6 +213,7 @@ source "${VENV_DIR}/bin/activate"
 cd "${WORKDIR}"
 
 python3 baseline_CoT_options.py \
+  --model-id google/gemma-3-4b-it \
   --category math \
   --start 0 \
   --end 10
@@ -227,7 +248,7 @@ python3 baseline_CoT_options.py --category math --start 0 --end 100 --overwrite
 Use only already-cached model files:
 
 ```bash
-python3 baseline_CoT_options.py --category math --local-files-only
+python3 baseline_CoT_options.py --category math --model-id google/gemma-3-4b-it --local-files-only
 ```
 
 ## Output Location
@@ -246,12 +267,33 @@ python3 baseline_CoT_options.py \
   --output-path "$HOME/my_outputs/baseline_CoTs_options.jsonl"
 ```
 
+## Cleaning Up The Old Qwen Attempt
+
+If the old `Qwen/Qwen3-32B` download partially filled your quota, use the cleanup helper:
+
+```bash
+cd "$HOME/CoTOverthinking/CoT_Overthinking_Bede"
+bash cleanup_qwen_setup.sh
+```
+
+That removes:
+
+- `$HOME/.cache/huggingface/hub/models--Qwen--Qwen3-32B`
+
+If you also want to clear the full Hugging Face `xet` cache:
+
+```bash
+bash cleanup_qwen_setup.sh --remove-xet-cache
+```
+
+Use the second form carefully, because it can remove reusable download cache for other Hugging Face models as well.
+
 ## Notes And Caveats
 
 - This version uses local Hugging Face generation, not Groq. Expect some answer traces to differ from your earlier Groq outputs even with the same base model family.
-- The script uses Qwen3 thinking mode for the main pass and non-thinking mode for the label-extraction judge fallback.
+- The script no longer uses Qwen3 native thinking mode. For Gemma 3, it explicitly prompts the model to emit `<think>...</think>` reasoning and then a final letter.
 - If you accidentally run it on `ghlogin` without a GPU allocation, it will fail fast with a CUDA error message.
-- If you hit memory pressure, reduce the job size first by testing with fewer questions or a smaller model such as `Qwen/Qwen3-8B`.
+- If you hit memory pressure, reduce the job size first by testing with fewer questions or a smaller model such as `google/gemma-3-1b-it`.
 - Because this setup now uses your home directory for the venv and Hugging Face caches, make sure your home quota is large enough for the model and dataset files.
 - If you want the longest possible GH200 memory headroom, Bede also supports explicitly requesting `--gres=gpu:gh200_144g:1`, but that will usually queue longer than a generic `gpu:1`.
 
@@ -260,4 +302,5 @@ python3 baseline_CoT_options.py \
 - Bede usage guide: https://bede-documentation.readthedocs.io/en/latest/usage/index.html
 - Bede Conda guide: https://bede-documentation.readthedocs.io/en/latest/software/applications/conda.html
 - Bede PyTorch guide: https://bede-documentation.readthedocs.io/en/latest/software/applications/pytorch.html
-- Qwen quickstart: https://qwen.readthedocs.io/en/stable/getting_started/quickstart.html
+- Gemma 3 Transformers docs: https://huggingface.co/docs/transformers/en/model_doc/gemma3
+- Gemma 3 4B IT model page: https://huggingface.co/google/gemma-3-4b-it

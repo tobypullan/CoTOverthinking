@@ -4,7 +4,7 @@
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
 #SBATCH --time=12:00:00
-#SBATCH --job-name=cot-options
+#SBATCH --job-name=cot-gemma4b
 #SBATCH --output=%x-%j.out
 
 set -euo pipefail
@@ -27,6 +27,7 @@ source "${VENV_DIR}/bin/activate"
 cd "${WORKDIR}"
 
 python3 baseline_CoT_options.py \
+  --model-id google/gemma-3-4b-it \
   --category math \
   --start 0 \
   --end 10
