@@ -7,7 +7,6 @@ import urllib.request
 from pathlib import Path
 
 
-MODEL_ID = "google/gemma-3-4b-it"
 OLLAMA_MODEL_ID = "gemma3:4b"
 OPTIONS_DEFAULT_DATASET_CATEGORY = "math"
 
@@ -26,8 +25,7 @@ LABELS = tuple("ABCDEFGHIJ")
 LABEL_SET = set(LABELS)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-BASELINE_OPTIONS_PATH = SCRIPT_DIR / "baseline" / "baseline_CoTs_options.jsonl"
-OLLAMA_BASELINE_OPTIONS_PATH = SCRIPT_DIR / "baseline" / "baseline_CoTs_options_ollama.jsonl"
+BASELINE_OPTIONS_PATH = SCRIPT_DIR / "baseline" / "baseline_CoTs_options_ollama.jsonl"
 DATASET_NAME = "TIGER-Lab/MMLU-Pro"
 DATASET_SPLIT = "test"
 
@@ -143,153 +141,6 @@ def build_chat_messages(system_text, user_text):
     ]
 
 
-class LocalGemmaRunner:
-    def __init__(self, model_id, local_files_only=False, torch_dtype="auto"):
-        import torch
-        from transformers import AutoTokenizer, Gemma3ForConditionalGeneration
-
-        if not torch.cuda.is_available():
-            raise RuntimeError(
-                "CUDA is not available. On Bede, `ghlogin` is CPU-only as of "
-                "2025-09-23. Run this inside a `gh`/`ghtest` GPU allocation."
-            )
-
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
-        torch.set_float32_matmul_precision("high")
-
-        self.torch = torch
-        self.model_id = model_id
-        self.torch_dtype = self._resolve_torch_dtype(torch_dtype)
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            model_id,
-            local_files_only=local_files_only,
-            use_fast=True,
-        )
-        if self.tokenizer.pad_token_id is None and self.tokenizer.eos_token_id is not None:
-            self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
-
-        self.model = Gemma3ForConditionalGeneration.from_pretrained(
-            model_id,
-            torch_dtype=self.torch_dtype,
-            device_map="auto",
-            attn_implementation="sdpa",
-            local_files_only=local_files_only,
-        )
-        self.model.eval()
-        text_config = getattr(self.model.config, "text_config", None)
-        self.max_context_tokens = getattr(
-            text_config,
-            "max_position_embeddings",
-            getattr(self.model.config, "max_position_embeddings", None),
-        )
-
-    def _resolve_torch_dtype(self, torch_dtype):
-        if torch_dtype == "auto":
-            return "auto"
-
-        dtype_map = {
-            "float16": self.torch.float16,
-            "fp16": self.torch.float16,
-            "bfloat16": self.torch.bfloat16,
-            "bf16": self.torch.bfloat16,
-            "float32": self.torch.float32,
-            "fp32": self.torch.float32,
-        }
-        try:
-            return dtype_map[torch_dtype.casefold()]
-        except KeyError as exc:
-            supported = ", ".join(sorted(dtype_map))
-            raise ValueError(
-                f"Unsupported --torch-dtype value {torch_dtype!r}. "
-                f"Expected one of: auto, {supported}."
-            ) from exc
-
-    def _normalise_generated_text(self, generated_text):
-        generated_text = generated_text.strip("\n")
-        if "<think>" in generated_text:
-            return generated_text.strip()
-        return generated_text.strip()
-
-    def generate(
-        self,
-        messages,
-        *,
-        temperature,
-        top_p,
-        top_k,
-        max_new_tokens,
-        disable_compile=False,
-    ):
-        prompt_prep_start = time.perf_counter()
-        model_inputs = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=True,
-            return_dict=True,
-            return_tensors="pt",
-            add_generation_prompt=True,
-        ).to(self.model.device)
-        prompt_prep_seconds = time.perf_counter() - prompt_prep_start
-        input_length = model_inputs["input_ids"].shape[-1]
-
-        effective_max_new_tokens = max_new_tokens
-        if self.max_context_tokens is not None:
-            remaining = self.max_context_tokens - input_length
-            if remaining <= 0:
-                raise RuntimeError(
-                    "Prompt length already exceeds the model context window. "
-                    "Try a shorter prompt or a model with a larger context."
-                )
-            effective_max_new_tokens = min(effective_max_new_tokens, remaining)
-
-        do_sample = temperature > 0
-        generation_kwargs = {
-            "max_new_tokens": effective_max_new_tokens,
-            "do_sample": do_sample,
-            "pad_token_id": self.tokenizer.pad_token_id,
-            "eos_token_id": self.tokenizer.eos_token_id,
-            "return_dict_in_generate": True,
-        }
-        if do_sample:
-            generation_kwargs["temperature"] = temperature
-            generation_kwargs["top_p"] = top_p
-            generation_kwargs["top_k"] = top_k
-        if disable_compile:
-            generation_kwargs["disable_compile"] = True
-
-        self.torch.cuda.synchronize()
-        generation_start = time.perf_counter()
-        with self.torch.inference_mode():
-            outputs = self.model.generate(**model_inputs, **generation_kwargs)
-        self.torch.cuda.synchronize()
-        generation_seconds = time.perf_counter() - generation_start
-
-        sequences = outputs.sequences[0]
-        output_ids = sequences[input_length:].tolist()
-        generated_text = self.tokenizer.decode(
-            output_ids,
-            skip_special_tokens=True,
-            clean_up_tokenization_spaces=False,
-        )
-        raw_response = self._normalise_generated_text(generated_text)
-
-        finish_reason = "length" if len(output_ids) >= effective_max_new_tokens else "stop"
-        return {
-            "raw_response": raw_response,
-            "finish_reason": finish_reason,
-            "generated_token_count": len(output_ids),
-            "effective_max_new_tokens": effective_max_new_tokens,
-            "prompt_token_count": input_length,
-            "prompt_prep_seconds": prompt_prep_seconds,
-            "generation_seconds": generation_seconds,
-            "tokens_per_second": (
-                len(output_ids) / generation_seconds
-                if generation_seconds > 0
-                else None
-            ),
-        }
-
-
 class OllamaRunner:
     def __init__(
         self,
@@ -312,9 +163,7 @@ class OllamaRunner:
         top_p,
         top_k,
         max_new_tokens,
-        disable_compile=False,
     ):
-        _ = disable_compile
         prompt_prep_start = time.perf_counter()
         system_text = ""
         user_text_parts = []
@@ -396,6 +245,7 @@ class OllamaRunner:
             ),
         }
 
+
 def get_dataset():
     global _DATASET
     if _DATASET is None:
@@ -433,7 +283,6 @@ def baseline_cot(q_id, runner, args):
         top_p=FULL_TRACE_TOP_P,
         top_k=FULL_TRACE_TOP_K,
         max_new_tokens=args.max_new_tokens,
-        disable_compile=args.disable_compile,
     )
 
     raw_response = completion["raw_response"]
@@ -462,24 +311,12 @@ def baseline_cot(q_id, runner, args):
     )
 
 
-def default_output_path_for_backend(backend):
-    if backend == "ollama":
-        return OLLAMA_BASELINE_OPTIONS_PATH
-    return BASELINE_OPTIONS_PATH
-
-
 def build_runner(args):
-    if args.backend == "ollama":
-        return OllamaRunner(
-            model_id=args.model_id,
-            base_url=args.ollama_base_url,
-            timeout_seconds=args.ollama_timeout_seconds,
-            keep_alive=args.ollama_keep_alive,
-        )
-    return LocalGemmaRunner(
+    return OllamaRunner(
         model_id=args.model_id,
-        local_files_only=args.local_files_only,
-        torch_dtype=args.torch_dtype,
+        base_url=args.ollama_base_url,
+        timeout_seconds=args.ollama_timeout_seconds,
+        keep_alive=args.ollama_keep_alive,
     )
 
 
@@ -523,13 +360,7 @@ def row_is_compatible(row):
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Generate baseline Gemma 3 4B CoTs for MMLU-Pro options prompts on Bede."
-    )
-    parser.add_argument(
-        "--backend",
-        choices=("transformers", "ollama"),
-        default="transformers",
-        help="Inference backend to use. Default: transformers.",
+        description="Generate baseline Gemma 3 4B CoTs for MMLU-Pro options prompts with Ollama."
     )
     parser.add_argument(
         "--start",
@@ -566,49 +397,20 @@ def parse_args():
     parser.add_argument(
         "--model-id",
         type=str,
-        default=None,
-        help=(
-            "Model identifier for the selected backend. Defaults to "
-            f"{MODEL_ID!r} for transformers and {OLLAMA_MODEL_ID!r} for Ollama."
-        ),
+        default=OLLAMA_MODEL_ID,
+        help=f"Ollama model identifier. Default: {OLLAMA_MODEL_ID!r}.",
     )
     parser.add_argument(
         "--output-path",
         type=Path,
-        default=None,
-        help=(
-            "Output JSONL path. Defaults to backend-specific files under "
-            f"{SCRIPT_DIR / 'baseline'}."
-        ),
+        default=BASELINE_OPTIONS_PATH,
+        help=f"Output JSONL path. Default: {BASELINE_OPTIONS_PATH}.",
     )
     parser.add_argument(
         "--max-new-tokens",
         type=int,
         default=FULL_TRACE_MAX_COMPLETION_TOKENS,
-        help=(
-            "Maximum generated tokens for the main CoT pass before context-window "
-            "capping is applied."
-        ),
-    )
-    parser.add_argument(
-        "--local-files-only",
-        action="store_true",
-        help="Load the model/tokenizer from the local Hugging Face cache only.",
-    )
-    parser.add_argument(
-        "--torch-dtype",
-        type=str,
-        default="auto",
-        help="Torch dtype passed to from_pretrained, e.g. auto or bfloat16.",
-    )
-    parser.add_argument(
-        "--disable-compile",
-        action="store_true",
-        help=(
-            "Disable Transformers' automatic decode compilation. Useful for short "
-            "smoke tests where cold-start latency matters more than peak "
-            "steady-state tokens/second."
-        ),
+        help="Maximum generated tokens for the main CoT pass.",
     )
     parser.add_argument(
         "--ollama-base-url",
@@ -628,13 +430,7 @@ def parse_args():
         default="10m",
         help="Ollama keep_alive value to keep the model warm between requests.",
     )
-
-    args = parser.parse_args()
-    if args.model_id is None:
-        args.model_id = OLLAMA_MODEL_ID if args.backend == "ollama" else MODEL_ID
-    if args.output_path is None:
-        args.output_path = default_output_path_for_backend(args.backend)
-    return args
+    return parser.parse_args()
 
 
 def main():
@@ -648,7 +444,7 @@ def main():
             "Use 'all' to disable category filtering."
         )
 
-    print(f"Loading backend={args.backend} model={args.model_id}...")
+    print(f"Loading Ollama model={args.model_id}...")
     runner = build_runner(args)
     print("Runner ready.")
 
@@ -707,7 +503,7 @@ def main():
     weighted_toks_text = f"{weighted_toks:.2f}" if weighted_toks is not None else "n/a"
     print(
         "Run summary: "
-        f"backend={args.backend} "
+        f"backend=ollama "
         f"model={args.model_id} "
         f"processed={processed} "
         f"output_path={args.output_path} "
