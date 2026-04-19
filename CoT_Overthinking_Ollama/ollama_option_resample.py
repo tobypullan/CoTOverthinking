@@ -21,25 +21,23 @@ from options_experiment_utils import (
     OPTIONS_DEFAULT_DATASET_CATEGORY,
     RANDOM_CONTROL_DEFAULT_SEED,
     SUPPORTED_RESAMPLE_CONDITIONS,
-    build_probe_messages,
     category_value_matches,
     extract_answer_label,
-    extract_final_answer_text,
     extract_reasoning_trace,
-    probe_response_needs_retry,
     read_jsonl,
     validate_resample_condition,
     write_jsonl,
 )
+from ollama_options import SYSTEM_PROMPT as BASELINE_SYSTEM_PROMPT
 
 
 OLLAMA_MODEL_ID = "gemma3:4b"
 TOKENIZER_MODEL_ID = "google/gemma-3-4b-it"
-OLLAMA_OPTIONS_PROBE_METHOD_VERSION = 1
+OLLAMA_OPTIONS_PROBE_METHOD_VERSION = 3
 OLLAMA_OPTIONS_RESAMPLE_SCHEMA_VERSION = 1
 PROBE_TEMPERATURE = 0.0
 PROBE_TOP_P = 1.0
-PROBE_MAX_COMPLETION_TOKENS = 8
+PROBE_MAX_COMPLETION_TOKENS = 32
 RESAMPLE_POINTS = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
 
 BASELINE_OPTIONS_PATH = SCRIPT_DIR / "baseline" / "baseline_CoTs_options_ollama.jsonl"
@@ -203,7 +201,7 @@ class OllamaChatClient:
         self.timeout_seconds = timeout_seconds
         self.keep_alive = keep_alive
 
-    def generate(
+    def chat(
         self,
         messages,
         *,
@@ -213,13 +211,7 @@ class OllamaChatClient:
     ):
         payload = {
             "model": self.model_id,
-            "messages": [
-                {
-                    "role": message["role"],
-                    "content": message["content"],
-                }
-                for message in messages
-            ],
+            "messages": messages,
             "stream": False,
             "keep_alive": self.keep_alive,
             "options": {
@@ -268,26 +260,24 @@ def resolve_answer_without_judge(response):
     }
 
 
+def build_forced_continuation_messages(prompt, reasoning_prefix):
+    prefix_text = (reasoning_prefix or "").strip()
+    return [
+        {"role": "system", "content": BASELINE_SYSTEM_PROMPT},
+        {"role": "user", "content": prompt},
+        {"role": "assistant", "content": f"<think>{prefix_text}</think>\n"},
+    ]
+
+
 def probe_answer(client, prompt, reasoning_prefix):
-    attempts = (False, True)
-    last_raw_probe_response = ""
-    last_response = ""
-
-    for retry in attempts:
-        raw_probe_response = client.generate(
-            messages=build_probe_messages(prompt, reasoning_prefix, retry=retry),
-            temperature=PROBE_TEMPERATURE,
-            top_p=PROBE_TOP_P,
-            max_new_tokens=PROBE_MAX_COMPLETION_TOKENS,
-        )
-        response = extract_final_answer_text(raw_probe_response)
-
-        last_raw_probe_response = raw_probe_response
-        last_response = response
-        if not probe_response_needs_retry(raw_probe_response, response):
-            break
-
-    return last_raw_probe_response, last_response
+    messages = build_forced_continuation_messages(prompt, reasoning_prefix)
+    raw_probe_response = client.chat(
+        messages,
+        temperature=PROBE_TEMPERATURE,
+        top_p=PROBE_TOP_P,
+        max_new_tokens=PROBE_MAX_COMPLETION_TOKENS,
+    )
+    return raw_probe_response, raw_probe_response.strip()
 
 
 def get_row_category(q_id):
